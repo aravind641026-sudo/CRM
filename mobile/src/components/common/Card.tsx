@@ -8,7 +8,7 @@ interface CardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
-  variant?: 'default' | 'elevated' | 'highlight' | 'muted';
+  variant?: 'default' | 'elevated' | 'highlight' | 'muted' | 'glass';
   activeOpacity?: number;
 }
 
@@ -23,9 +23,9 @@ export const Card: React.FC<CardProps> = ({
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
-      toValue: 0.97,
+      toValue: 0.975,
       useNativeDriver: true,
-      speed: 20,
+      speed: 24,
       bounciness: 0,
     }).start();
   };
@@ -34,7 +34,7 @@ export const Card: React.FC<CardProps> = ({
     Animated.spring(scaleAnim, {
       toValue: 1,
       useNativeDriver: true,
-      speed: 20,
+      speed: 24,
       bounciness: 4,
     }).start();
   };
@@ -45,8 +45,10 @@ export const Card: React.FC<CardProps> = ({
         return colors.surfaceMuted;
       case 'highlight':
         return colors.primaryLight;
+      case 'glass':
+        return colors.surfaceGlass;
       default:
-        return colors.surface;
+        return 'rgba(255, 255, 255, 0.92)';
     }
   };
 
@@ -80,8 +82,9 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: spacing.borderRadius.card,
     padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     marginBottom: spacing.normal,
   },
 });
+

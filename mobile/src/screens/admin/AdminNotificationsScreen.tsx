@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
@@ -19,26 +19,40 @@ import { IconTile } from '../../components/common/IconTile';
 import { Card } from '../../components/common/Card';
 import { LoadingState } from '../../components/common/LoadingState';
 import { EmptyState } from '../../components/common/EmptyState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
+import { FilterSheetModal } from '../../components/common/FilterSheetModal';
 import { notificationApi } from '../../api/notificationApi';
 import { shiftApi } from '../../api/shiftApi';
 import { AdminNotification } from '../../types';
 
-type FilterType = 'ALL' | 'SHIFTS' | 'PERMISSIONS' | 'ASSIGNMENTS' | 'SYSTEM';
+type CategoryFilter = 'ALL' | 'SHIFTS' | 'ASSIGNMENTS' | 'SYSTEM';
+type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export const AdminNotificationsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
 
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Active filters
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+
+  // Filter Sheet Modal state
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [tempCategory, setTempCategory] = useState<CategoryFilter>('ALL');
+  const [tempStatus, setTempStatus] = useState<StatusFilter>('ALL');
 
   const fetchNotifications = useCallback(async (isRefresh = false) => {
     if (!isRefresh) setLoading(true);
     try {
       const data = await notificationApi.getAdminNotifications();
-      setNotifications(data || []);
+      // Filter out any obsolete PERMISSION_REQUEST notifications
+      const valid = (data || []).filter((n) => n.type !== 'PERMISSION_REQUEST');
+      setNotifications(valid);
     } catch (err: any) {
       console.warn('Failed to load notifications:', err);
     } finally {
@@ -56,45 +70,28 @@ export const AdminNotificationsScreen: React.FC = () => {
     fetchNotifications(true);
   };
 
-  const handleReviewPermission = async (
-    item: AdminNotification,
-    decision: 'APPROVED' | 'REJECTED'
-  ) => {
-    if (!item.referenceId) return;
-
-    const actionText = decision === 'APPROVED' ? 'approve' : 'reject';
-    Alert.alert(
-      `${decision === 'APPROVED' ? 'Approve' : 'Reject'} Request`,
-      `Are you sure you want to ${actionText} Admin access for this user?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: decision === 'APPROVED' ? 'Approve' : 'Reject',
-          style: decision === 'REJECTED' ? 'destructive' : 'default',
-          onPress: async () => {
-            setProcessingId(item.id);
-            try {
-              await notificationApi.reviewAccessRequest(
-                item.referenceId!,
-                decision,
-                `Reviewed from Admin Notifications`
-              );
-              setNotifications((prev) =>
-                prev.map((n) =>
-                  n.id === item.id ? { ...n, status: decision, read: true } : n
-                )
-              );
-              Alert.alert('Success', `Request has been ${decision.toLowerCase()}.`);
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Unable to complete review.');
-            } finally {
-              setProcessingId(null);
-            }
-          },
-        },
-      ]
-    );
+  const openFilterModal = () => {
+    setTempCategory(categoryFilter);
+    setTempStatus(statusFilter);
+    setFilterModalVisible(true);
   };
+
+  const handleApplyFilters = () => {
+    setCategoryFilter(tempCategory);
+    setStatusFilter(tempStatus);
+    setFilterModalVisible(false);
+  };
+
+  const handleResetFilters = () => {
+    setTempCategory('ALL');
+    setTempStatus('ALL');
+    setCategoryFilter('ALL');
+    setStatusFilter('ALL');
+    setFilterModalVisible(false);
+  };
+
+  const hasActiveFilters = categoryFilter !== 'ALL' || statusFilter !== 'ALL';
+  const activeFilterCount = (categoryFilter !== 'ALL' ? 1 : 0) + (statusFilter !== 'ALL' ? 1 : 0);
 
   const handleReviewShiftChange = async (
     item: AdminNotification,
@@ -135,20 +132,32 @@ export const AdminNotificationsScreen: React.FC = () => {
     );
   };
 
-  const filteredNotifications = notifications.filter((item) => {
-    if (activeFilter === 'ALL') return true;
-    if (activeFilter === 'SHIFTS') return item.type === 'SHIFT_CHANGE_REQUEST';
-    if (activeFilter === 'PERMISSIONS') return item.type === 'PERMISSION_REQUEST';
-    if (activeFilter === 'ASSIGNMENTS')
-      return (
-        item.type === 'LEAD_ASSIGNMENT' || item.type === 'LEAD_REASSIGNMENT'
-      );
-    if (activeFilter === 'SYSTEM')
-      return (
-        item.type === 'SYSTEM_EVENT' || item.type === 'PROJECT_EVENT'
-      );
-    return true;
-  });
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter((item) => {
+      // Category filter
+      if (categoryFilter === 'SHIFTS' && item.type !== 'SHIFT_CHANGE_REQUEST') return false;
+      if (
+        categoryFilter === 'ASSIGNMENTS' &&
+        item.type !== 'LEAD_ASSIGNMENT' &&
+        item.type !== 'LEAD_REASSIGNMENT'
+      )
+        return false;
+      if (
+        categoryFilter === 'SYSTEM' &&
+        item.type !== 'SYSTEM_EVENT' &&
+        item.type !== 'PROJECT_EVENT'
+      )
+        return false;
+
+      // Status filter
+      if (statusFilter !== 'ALL') {
+        const itemStatus = item.status || (item.read ? 'READ' : 'UNREAD');
+        if (itemStatus !== statusFilter) return false;
+      }
+
+      return true;
+    });
+  }, [notifications, categoryFilter, statusFilter]);
 
   const formatTimestamp = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -169,8 +178,6 @@ export const AdminNotificationsScreen: React.FC = () => {
     switch (type) {
       case 'SHIFT_CHANGE_REQUEST':
         return { name: 'time', variant: 'purple' as const };
-      case 'PERMISSION_REQUEST':
-        return { name: 'shield-checkmark', variant: 'orange' as const };
       case 'LEAD_ASSIGNMENT':
         return { name: 'person-add', variant: 'blue' as const };
       case 'LEAD_REASSIGNMENT':
@@ -184,9 +191,7 @@ export const AdminNotificationsScreen: React.FC = () => {
 
   const renderItem = ({ item }: { item: AdminNotification }) => {
     const iconConfig = getNotificationIcon(item.type);
-    const isPermission = item.type === 'PERMISSION_REQUEST';
     const isShift = item.type === 'SHIFT_CHANGE_REQUEST';
-    const isActionable = isPermission || isShift;
     const isPending = item.status === 'PENDING';
     const isProcessing = processingId === item.id;
 
@@ -212,7 +217,7 @@ export const AdminNotificationsScreen: React.FC = () => {
             </View>
           </View>
 
-          {isActionable && (
+          {isShift && (
             <View
               style={[
                 styles.statusBadge,
@@ -244,8 +249,8 @@ export const AdminNotificationsScreen: React.FC = () => {
           <Text style={styles.message}>{item.message}</Text>
         </View>
 
-        {/* Clean, separated action buttons at bottom */}
-        {isActionable && isPending && (
+        {/* Action buttons for pending shift requests */}
+        {isShift && isPending && (
           <View style={styles.actionsFooter}>
             {isProcessing ? (
               <View style={styles.processingRow}>
@@ -256,11 +261,7 @@ export const AdminNotificationsScreen: React.FC = () => {
               <View style={styles.actionButtonsRow}>
                 <TouchableOpacity
                   style={styles.rejectBtn}
-                  onPress={() =>
-                    isShift
-                      ? handleReviewShiftChange(item, 'REJECTED')
-                      : handleReviewPermission(item, 'REJECTED')
-                  }
+                  onPress={() => handleReviewShiftChange(item, 'REJECTED')}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
@@ -269,11 +270,7 @@ export const AdminNotificationsScreen: React.FC = () => {
 
                 <TouchableOpacity
                   style={styles.approveBtn}
-                  onPress={() =>
-                    isShift
-                      ? handleReviewShiftChange(item, 'APPROVED')
-                      : handleReviewPermission(item, 'APPROVED')
-                  }
+                  onPress={() => handleReviewShiftChange(item, 'APPROVED')}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
@@ -287,107 +284,257 @@ export const AdminNotificationsScreen: React.FC = () => {
     );
   };
 
-  return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      <MeqHeader
-        showLogo={false}
-        title="Admin Notifications"
-        subtitle="Approvals, shift requests & system alerts"
-        onBack={() => navigation.goBack()}
-      />
-
-      {/* Filter Tabs */}
-      <View style={styles.filterRow}>
-        {(['ALL', 'SHIFTS', 'PERMISSIONS', 'ASSIGNMENTS', 'SYSTEM'] as FilterType[]).map(
-          (tab) => {
-            const isActive = activeFilter === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.filterPill, isActive && styles.filterPillActive]}
-                onPress={() => setActiveFilter(tab)}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    isActive && styles.filterPillTextActive,
-                  ]}
-                >
-                  {tab === 'ALL'
-                    ? 'All'
-                    : tab === 'PERMISSIONS'
-                    ? 'Approvals'
-                    : tab === 'ASSIGNMENTS'
-                    ? 'Assignments'
-                    : 'System'}
-                </Text>
-              </TouchableOpacity>
-            );
-          }
-        )}
+  const renderFooterInfo = () => (
+    <View style={styles.infoFooterCard}>
+      <View style={styles.infoIconWrap}>
+        <Ionicons name="information-circle-outline" size={16} color="#6366F1" />
       </View>
+      <View style={styles.infoTextWrap}>
+        <Text style={styles.infoFooterTitle}>About Admin Notifications</Text>
+        <Text style={styles.infoFooterText}>
+          Real-time updates regarding shift requests, lead distributions, and organizational telemetry are routed directly here.
+        </Text>
+      </View>
+    </View>
+  );
 
-      {loading && !refreshing ? (
-        <LoadingState message="Loading notifications..." fullScreen />
-      ) : filteredNotifications.length === 0 ? (
-        <EmptyState
-          title="No Notifications"
-          description="There are no alerts matching the selected category."
-          icon="notifications-off-outline"
-        />
-      ) : (
-        <FlatList
-          data={filteredNotifications}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
-            />
+  return (
+    <AmbientBackground variant="home">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+        <MeqHeader
+          showLogo={false}
+          title="Admin Notifications"
+          subtitle="Shift requests & system alerts"
+          onBack={() => navigation.goBack()}
+          rightMode="custom"
+          rightElement={
+            <TouchableOpacity
+              onPress={openFilterModal}
+              activeOpacity={0.8}
+              style={[
+                styles.headerFilterBtn,
+                hasActiveFilters && styles.headerFilterBtnActive,
+              ]}
+            >
+              <Ionicons
+                name="options-outline"
+                size={15}
+                color={hasActiveFilters ? '#FFFFFF' : '#7C3AED'}
+              />
+              <Text
+                style={[
+                  styles.headerFilterBtnText,
+                  hasActiveFilters && styles.headerFilterBtnTextActive,
+                ]}
+              >
+                Filter
+              </Text>
+              {hasActiveFilters && (
+                <View style={styles.activeFilterDot} />
+              )}
+            </TouchableOpacity>
           }
         />
-      )}
-    </SafeAreaView>
+
+        {loading && !refreshing ? (
+          <LoadingState message="Loading notifications..." fullScreen />
+        ) : filteredNotifications.length === 0 ? (
+          <EmptyState
+            title="No Notifications"
+            description={hasActiveFilters ? 'No alerts match the selected filter.' : 'All caught up! New alerts will appear here.'}
+            icon="notifications-off-outline"
+          />
+        ) : (
+          <FlatList
+            data={filteredNotifications}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
+            showsVerticalScrollIndicator={false}
+            ListFooterComponent={renderFooterInfo}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            }
+          />
+        )}
+
+        {/* Admin Notification Filter Sheet Modal */}
+        <FilterSheetModal
+          visible={filterModalVisible}
+          onClose={() => setFilterModalVisible(false)}
+          title="Filter Notifications"
+          hasActiveFilters={hasActiveFilters}
+          onApply={handleApplyFilters}
+          onReset={handleResetFilters}
+        >
+          {/* 1. Category Filter */}
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>CATEGORY</Text>
+            <View style={styles.filterChipRow}>
+              {[
+                { id: 'ALL' as const, label: 'All Categories' },
+                { id: 'SHIFTS' as const, label: 'Shift Requests' },
+                { id: 'ASSIGNMENTS' as const, label: 'Lead Assignments' },
+                { id: 'SYSTEM' as const, label: 'System & Projects' },
+              ].map((cat) => {
+                const isSel = tempCategory === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.modalChip, isSel && styles.modalChipActive]}
+                    onPress={() => setTempCategory(cat.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.modalChipText, isSel && styles.modalChipTextActive]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* 2. Status Filter */}
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>STATUS</Text>
+            <View style={styles.filterChipRow}>
+              {[
+                { id: 'ALL' as const, label: 'All Statuses' },
+                { id: 'PENDING' as const, label: 'Pending' },
+                { id: 'APPROVED' as const, label: 'Approved' },
+                { id: 'REJECTED' as const, label: 'Rejected' },
+              ].map((st) => {
+                const isSel = tempStatus === st.id;
+                return (
+                  <TouchableOpacity
+                    key={st.id}
+                    style={[styles.modalChip, isSel && styles.modalChipActive]}
+                    onPress={() => setTempStatus(st.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.modalChipText, isSel && styles.modalChipTextActive]}>
+                      {st.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </FilterSheetModal>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
-  filterRow: {
+  headerFilterBtn: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.xs,
-  },
-  filterPill: {
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
+    borderRadius: 20,
+    backgroundColor: '#F3E8FF',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#E9D5FF',
+    position: 'relative',
   },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  headerFilterBtnActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
   },
-  filterPillText: {
+  headerFilterBtnText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  filterPillTextActive: {
-    color: '#ffffff',
     fontWeight: '700',
+    color: '#7C3AED',
+  },
+  headerFilterBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  activeFilterDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EC4899',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  filterSection: {
+    marginBottom: 16,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  filterChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  modalChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalChipActive: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#8B5CF6',
+  },
+  modalChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  modalChipTextActive: {
+    color: '#7C3AED',
+    fontWeight: '800',
+  },
+  infoFooterCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+    padding: 14,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  infoIconWrap: {
+    marginTop: 1,
+  },
+  infoTextWrap: {
+    flex: 1,
+  },
+  infoFooterTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  infoFooterText: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 2,
+    lineHeight: 16,
   },
   listContent: {
     paddingHorizontal: spacing.md,

@@ -19,4 +19,8 @@ public interface ShiftChangeRequestRepository extends JpaRepository<ShiftChangeR
     boolean existsByUserIdAndStatus(Long userId, String status);
 
     Optional<ShiftChangeRequest> findFirstByUserIdAndStatusOrderByRequestedAtDesc(Long userId, String status);
+
+    List<ShiftChangeRequest> findByReviewedById(Long reviewedById);
+
+    void deleteByUserId(Long userId);
 }

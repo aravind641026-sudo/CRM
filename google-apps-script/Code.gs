@@ -23,10 +23,10 @@
 // Configuration
 var CONFIG = {
   // Live Public Backend URL for Google Sheets cloud integration
-  DEFAULT_BACKEND_URL: "https://petite-fans-send.loca.lt",
+  DEFAULT_BACKEND_URL: "https://calling-crm-live-backend.loca.lt",
   
   // Shared secret for admin authentication with Spring Boot
-  DEFAULT_SECRET: "AKfycbylAaHN1h43Q0FcdQTmoBJ44457TPz7B7djsjkb8RbrfVJkDehXwwJP1cRq7XsueVG6",
+  DEFAULT_SECRET: "AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl",
   
   TIMEZONE: "Asia/Kolkata",
   DATE_FORMAT: "dd-MM-yyyy HH:mm:ss",
@@ -48,9 +48,11 @@ function onOpen() {
     .addItem("⬆️ PUSH TO DATABASE", "pushToDatabase")
     .addItem("⬇️ PULL FROM DATABASE", "pullFromDatabase")
     .addSeparator()
+    .addItem("🧹 CLEAN DUPLICATE TABS", "cleanDuplicateTabs")
     .addItem("📊 SYNC STATUS", "getSyncStatus")
     .addSeparator()
     .addItem("⚙️ CONFIGURE CONNECTION", "configureConnection")
+    .addItem("🔄 RESET CONNECTION TO DEFAULT", "resetConnection")
     .addToUi();
 }
 
@@ -92,7 +94,8 @@ function pushToDatabase() {
     // 3. Read all relevant application table tabs
     var tablesToSync = [
       "Roles", "Projects", "Users", "Leads", "Lead_Assignments",
-      "Calls", "Follow_Ups", "Sales", "Notes", "Attendance", "Admin_Access_Requests"
+      "Calls", "Follow_Ups", "Sales", "Notes", "Attendance",
+      "Shift_Change_Requests", "Admin_Access_Requests"
     ];
 
     var tablesPayload = {};
@@ -328,6 +331,9 @@ function pullFromDatabase() {
         writeTableSheet(ss, tableName, headers, rows);
       }
 
+      // Purge any duplicate or stray tabs (e.g. Sheet1, Lead_Assignments_2, etc.)
+      purgeRedundantSheets(ss, Object.keys(tablesMap));
+
       // Update Sync_Log
       logSyncRun(ss, {
         syncId: syncCode,
@@ -381,7 +387,14 @@ function pullFromDatabase() {
         message: "PULL FAILED: " + errorMsg
       });
 
-      ui.alert("❌ PULL FAILED", errorMsg, ui.ButtonSet.OK);
+      ui.alert(
+        "❌ PULL FAILED (HTTP " + statusCode + ")",
+        "Target URL: " + backendUrl + "\n\n" +
+        "Details: " + errorMsg + "\n\n" +
+        "👉 To update or verify your active connection URL, use:\n" +
+        "CRM SYNC > ⚙️ CONFIGURE CONNECTION",
+        ui.ButtonSet.OK
+      );
     }
 
   } catch (err) {
@@ -580,20 +593,83 @@ function configureConnection() {
   
   var urlPrompt = ui.prompt(
     "Configure Backend API URL",
-    "Enter the Spring Boot Backend URL (e.g. http://localhost:8080 or public ngrok / domain URL):\n\nCurrent: " + currentUrl,
+    "Enter the Spring Boot Backend URL (Leave blank to use default: " + CONFIG.DEFAULT_BACKEND_URL + "):\n\nCurrent: " + currentUrl,
     ui.ButtonSet.OK_CANCEL
   );
 
   if (urlPrompt.getSelectedButton() === ui.Button.OK) {
     var newUrl = urlPrompt.getResponseText().trim();
+    if (!newUrl) {
+      newUrl = CONFIG.DEFAULT_BACKEND_URL;
+    }
     if (newUrl.endsWith("/")) newUrl = newUrl.substring(0, newUrl.length - 1);
-    if (newUrl) {
-      PropertiesService.getScriptProperties().setProperty("BACKEND_URL", newUrl);
-      var ss = getSpreadsheet();
-      updateControlPanel(ss, { message: "Backend URL updated to: " + newUrl });
-      ui.alert("✅ Backend URL updated to: " + newUrl);
+    PropertiesService.getScriptProperties().setProperty("BACKEND_URL", newUrl);
+    var ss = getSpreadsheet();
+    updateControlPanel(ss, { message: "Backend URL updated to: " + newUrl });
+    ui.alert("✅ Backend URL updated to: " + newUrl);
+  }
+}
+
+function resetConnection() {
+  var ui = SpreadsheetApp.getUi();
+  PropertiesService.getScriptProperties().setProperty("BACKEND_URL", CONFIG.DEFAULT_BACKEND_URL);
+  var ss = getSpreadsheet();
+  updateControlPanel(ss, { message: "Connection reset to default: " + CONFIG.DEFAULT_BACKEND_URL });
+  ui.alert("🔄 RESET SUCCESSFUL", "Backend URL has been reset to active default:\n" + CONFIG.DEFAULT_BACKEND_URL, ui.ButtonSet.OK);
+}
+
+/**
+ * Clean up duplicate/stray sheets (e.g. Sheet1, Lead_Assignments_2, Leads_Copy, etc.)
+ */
+function cleanDuplicateTabs() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = getSpreadsheet();
+  var allowedTabs = [
+    "CRM_SYNC_CONTROL", "Sync_Log",
+    "Roles", "Projects", "Users", "Leads", "Lead_Assignments",
+    "Calls", "Follow_Ups", "Sales", "Notes", "Attendance",
+    "Shift_Change_Requests", "Admin_Access_Requests", "Audit_Logs"
+  ];
+
+  var deletedTabs = purgeRedundantSheets(ss, allowedTabs);
+  if (deletedTabs.length > 0) {
+    ui.alert("🧹 CLEANUP COMPLETE", "Removed " + deletedTabs.length + " redundant tab(s):\n• " + deletedTabs.join("\n• "), ui.ButtonSet.OK);
+  } else {
+    ui.alert("✅ CLEAN", "No duplicate or redundant tabs found. Your Google Sheet matches MySQL 1-to-1.", ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Purges sheets that do not belong to the canonical MySQL backup table list
+ */
+function purgeRedundantSheets(ss, canonicalNames) {
+  var allowedSet = {};
+  allowedSet["CRM_SYNC_CONTROL"] = true;
+  allowedSet["Sync_Log"] = true;
+  for (var i = 0; i < canonicalNames.length; i++) {
+    allowedSet[canonicalNames[i]] = true;
+  }
+
+  var sheets = ss.getSheets();
+  var deleted = [];
+
+  // Need at least 1 sheet to remain open
+  if (sheets.length <= 1) return deleted;
+
+  for (var s = 0; s < sheets.length; s++) {
+    var sh = sheets[s];
+    var sName = sh.getName();
+    if (!allowedSet[sName]) {
+      // Check if it's a default/duplicate sheet like Sheet1, Lead_Assignments_2, etc.
+      if (sheets.length > 1) {
+        try {
+          ss.deleteSheet(sh);
+          deleted.push(sName);
+        } catch (e) {}
+      }
     }
   }
+  return deleted;
 }
 
 /**
@@ -641,13 +717,19 @@ function doPost(e) {
 
 // Helpers
 function getBackendUrl() {
-  var url = PropertiesService.getScriptProperties().getProperty("BACKEND_URL") || CONFIG.DEFAULT_BACKEND_URL;
+  var savedUrl = PropertiesService.getScriptProperties().getProperty("BACKEND_URL");
+  var url = (savedUrl && savedUrl.trim() !== "") ? savedUrl.trim() : CONFIG.DEFAULT_BACKEND_URL;
+  // Automatically clear old/expired tunnel domains
+  if (savedUrl && (savedUrl.indexOf("chilly-wolves-post") !== -1 || savedUrl.indexOf("petite-fans-send") !== -1 || savedUrl.indexOf("odd-tables-rhyme") !== -1)) {
+    url = CONFIG.DEFAULT_BACKEND_URL;
+    PropertiesService.getScriptProperties().setProperty("BACKEND_URL", url);
+  }
   if (!url || url.indexOf("localhost") !== -1 || url.indexOf("127.0.0.1") !== -1) {
     throw new Error(
       "Cannot use 'localhost' from Google Sheets.\n\n" +
       "Google Apps Script runs in Google Cloud servers and cannot reach your computer's local port directly.\n\n" +
       "👉 TO FIX:\n" +
-      "1. Use the active public URL: https://petite-fans-send.loca.lt\n" +
+      "1. Use the active public URL: " + CONFIG.DEFAULT_BACKEND_URL + "\n" +
       "2. In Google Sheets menu, click: CRM SYNC > ⚙️ CONFIGURE CONNECTION and paste it."
     );
   }

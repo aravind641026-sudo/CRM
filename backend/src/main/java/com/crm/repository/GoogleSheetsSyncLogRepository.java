@@ -13,4 +13,6 @@ public interface GoogleSheetsSyncLogRepository extends JpaRepository<GoogleSheet
     Page<GoogleSheetsSyncLog> findAllByOrderByStartedAtDesc(Pageable pageable);
     Optional<GoogleSheetsSyncLog> findTopByOrderByStartedAtDesc();
     boolean existsByStatus(String status);
+    java.util.List<GoogleSheetsSyncLog> findByTriggeredById(Long triggeredById);
+    void deleteByTriggeredById(Long triggeredById);
 }

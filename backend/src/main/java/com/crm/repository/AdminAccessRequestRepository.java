@@ -12,4 +12,6 @@ public interface AdminAccessRequestRepository extends JpaRepository<AdminAccessR
     Optional<AdminAccessRequest> findTopByUserIdOrderByRequestedAtDesc(Long userId);
     boolean existsByUserIdAndStatus(Long userId, String status);
     List<AdminAccessRequest> findByStatusOrderByRequestedAtDesc(String status);
+    List<AdminAccessRequest> findByReviewedById(Long reviewedById);
+    void deleteByUserId(Long userId);
 }

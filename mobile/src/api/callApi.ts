@@ -46,6 +46,7 @@ export const callApi = {
   },
 
   getCalls: async (params?: {
+    userId?: number;
     leadId?: number;
     projectId?: number;
     status?: string;
@@ -57,6 +58,7 @@ export const callApi = {
   }): Promise<PageResponse<Call>> => {
     const res = await apiClient.get<ApiResponse<PageResponse<Call>>>('/calls', {
       params: {
+        userId: params?.userId,
         page: params?.page ?? 0,
         size: params?.size ?? 15,
         leadId: params?.leadId,

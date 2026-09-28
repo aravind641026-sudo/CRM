@@ -79,6 +79,18 @@ public class LeadController {
         return ResponseEntity.ok(ApiResponse.ok("Lead updated successfully", response));
     }
 
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<LeadSummaryResponse>> updateLeadStatus(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> request,
+            @CurrentUser UserPrincipal principal) {
+
+        String status = request.get("status");
+        String notes = request.get("notes");
+        LeadSummaryResponse response = leadService.updateLeadStatus(id, status, notes, principal.getId(), principal.isAdmin());
+        return ResponseEntity.ok(ApiResponse.ok("Lead status updated successfully", response));
+    }
+
     @PatchMapping("/{id}/outcome")
     public ResponseEntity<ApiResponse<LeadSummaryResponse>> updateLeadOutcome(
             @PathVariable Long id,

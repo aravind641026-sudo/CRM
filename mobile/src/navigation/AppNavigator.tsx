@@ -7,8 +7,12 @@ import { SplashScreen } from '../screens/splash/SplashScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { TabNavigator } from './TabNavigator';
 import { LeadDetailsScreen } from '../screens/leads/LeadDetailsScreen';
+import { LeadTimelineScreen } from '../screens/leads/LeadTimelineScreen';
+import { LeadFollowUpsScreen } from '../screens/leads/LeadFollowUpsScreen';
+import { LeadAssignmentsScreen } from '../screens/leads/LeadAssignmentsScreen';
 import { AttendanceHistoryScreen } from '../screens/attendance/AttendanceHistoryScreen';
 import { CallLogsScreen } from '../screens/calls/CallLogsScreen';
+import { CallHistoryDetailScreen } from '../screens/calls/CallHistoryDetailScreen';
 import { SalesScreen } from '../screens/sales/SalesScreen';
 import { ConvertedLeadsScreen } from '../screens/sales/ConvertedLeadsScreen';
 import { AdminProjectsScreen } from '../screens/admin/AdminProjectsScreen';
@@ -19,6 +23,7 @@ import { AuditLogsScreen } from '../screens/admin/AuditLogsScreen';
 import { GoogleSheetsScreen } from '../screens/admin/GoogleSheetsScreen';
 import { FollowUpsScreen } from '../screens/followups/FollowUpsScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
+import { AnalyticsScreen } from '../screens/analytics/AnalyticsScreen';
 import { AdminNotificationsScreen } from '../screens/admin/AdminNotificationsScreen';
 import { UserNotificationsScreen } from '../screens/home/UserNotificationsScreen';
 import { RootStackParamList } from '../types';
@@ -66,6 +71,21 @@ export const AppNavigator: React.FC = () => {
           options={{ animation: 'slide_from_right' }}
         />
         <Stack.Screen
+          name="LeadTimeline"
+          component={LeadTimelineScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
+          name="LeadFollowUps"
+          component={LeadFollowUpsScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
+          name="LeadAssignments"
+          component={LeadAssignmentsScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
           name="AttendanceHistory"
           component={AttendanceHistoryScreen}
           options={{ animation: 'slide_from_right' }}
@@ -73,6 +93,11 @@ export const AppNavigator: React.FC = () => {
         <Stack.Screen
           name="CallLogs"
           component={CallLogsScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
+          name="CallHistoryDetail"
+          component={CallHistoryDetailScreen}
           options={{ animation: 'slide_from_right' }}
         />
         <Stack.Screen
@@ -123,6 +148,11 @@ export const AppNavigator: React.FC = () => {
         <Stack.Screen
           name="Settings"
           component={SettingsScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
+          name="Analytics"
+          component={AnalyticsScreen}
           options={{ animation: 'slide_from_right' }}
         />
         <Stack.Screen

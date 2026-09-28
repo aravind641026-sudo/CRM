@@ -65,6 +65,11 @@ public class LeadAssignmentServiceImpl implements LeadAssignmentService {
 
         LeadAssignment saved = leadAssignmentRepository.save(assignment);
 
+        if ("NEW".equalsIgnoreCase(lead.getStatus())) {
+            lead.setStatus("IN_PROGRESS");
+            leadRepository.save(lead);
+        }
+
         auditService.logAction(assignerId, "Lead", lead.getId(), "ASSIGN", null,
                 "Assigned to: " + targetUser.getName());
 
@@ -96,7 +101,7 @@ public class LeadAssignmentServiceImpl implements LeadAssignmentService {
         if (existingActive.isPresent()) {
             LeadAssignment current = existingActive.get();
             if (current.getUser().getId().equals(newUserId)) {
-                throw new BusinessException("Lead is already assigned to user: " + newUser.getName());
+                return leadMapper.toAssignmentHistoryResponse(current);
             }
             current.setIsActive(false);
             current.setUnassignedAt(LocalDateTime.now());
@@ -114,6 +119,11 @@ public class LeadAssignmentServiceImpl implements LeadAssignmentService {
 
         LeadAssignment saved = leadAssignmentRepository.save(newAssignment);
 
+        if ("NEW".equalsIgnoreCase(lead.getStatus())) {
+            lead.setStatus("IN_PROGRESS");
+            leadRepository.save(lead);
+        }
+
         auditService.logAction(assignerId, "Lead", lead.getId(), "REASSIGN",
                 "Previous Owner: " + oldOwnerName,
                 "New Owner: " + newUser.getName());
@@ -122,6 +132,19 @@ public class LeadAssignmentServiceImpl implements LeadAssignmentService {
         notificationService.createLeadAssignedNotification(lead, newUser);
 
         return leadMapper.toAssignmentHistoryResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public List<AssignmentHistoryResponse> bulkAssignLeads(List<Long> leadIds, Long userId, Long assignerId) {
+        if (leadIds == null || leadIds.isEmpty()) {
+            throw new BusinessException("No lead IDs provided for assignment");
+        }
+        List<AssignmentHistoryResponse> responses = new ArrayList<>();
+        for (Long leadId : leadIds) {
+            responses.add(assignLead(leadId, userId, assignerId));
+        }
+        return responses;
     }
 
     @Override

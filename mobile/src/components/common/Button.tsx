@@ -10,13 +10,14 @@ import {
   View,
   Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'dangerLight' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'dangerLight' | 'outline' | 'ghost' | 'gradient';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   disabled?: boolean;
@@ -41,9 +42,9 @@ export const Button: React.FC<ButtonProps> = ({
   const handlePressIn = () => {
     if (disabled || loading) return;
     Animated.spring(scaleAnim, {
-      toValue: 0.97,
+      toValue: 0.965,
       useNativeDriver: true,
-      speed: 24,
+      speed: 26,
       bounciness: 0,
     }).start();
   };
@@ -57,48 +58,22 @@ export const Button: React.FC<ButtonProps> = ({
     }).start();
   };
 
-  const getBackgroundColor = () => {
-    if (disabled) return colors.surfaceMuted;
-    switch (variant) {
-      case 'primary':
-        return colors.primary;
-      case 'secondary':
-        return colors.primaryLight;
-      case 'success':
-        return colors.success;
-      case 'danger':
-        return colors.danger;
-      case 'dangerLight':
-        return colors.dangerLight;
-      case 'outline':
-      case 'ghost':
-        return 'transparent';
-      default:
-        return colors.primary;
-    }
-  };
-
-  const getBorderColor = () => {
-    if (disabled) return colors.border;
-    if (variant === 'outline') return colors.border;
-    return 'transparent';
-  };
-
   const getTextColor = () => {
     if (disabled) return colors.textMuted;
     switch (variant) {
       case 'primary':
+      case 'gradient':
       case 'success':
       case 'danger':
         return '#FFFFFF';
       case 'secondary':
-        return colors.primary;
+        return colors.primaryElectric;
       case 'dangerLight':
         return colors.danger;
       case 'outline':
         return colors.textPrimary;
       case 'ghost':
-        return colors.primary;
+        return colors.primaryElectric;
       default:
         return '#FFFFFF';
     }
@@ -107,13 +82,15 @@ export const Button: React.FC<ButtonProps> = ({
   const getHeight = () => {
     switch (size) {
       case 'sm':
-        return 36;
+        return 38;
       case 'lg':
         return 52;
       default:
-        return 48;
+        return 46;
     }
   };
+
+  const isPrimaryOrGradient = variant === 'primary' || variant === 'gradient';
 
   const flattenedStyle = StyleSheet.flatten(style) || {};
   const {
@@ -150,26 +127,93 @@ export const Button: React.FC<ButtonProps> = ({
   if (marginBottom !== undefined) containerStyle.marginBottom = marginBottom;
   if (alignSelf !== undefined) containerStyle.alignSelf = alignSelf;
 
-  return (
-    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, containerStyle]}>
-      <TouchableOpacity
+  const renderButtonBody = () => {
+    if (isPrimaryOrGradient && !disabled) {
+      return (
+        <LinearGradient
+          colors={colors.primaryButtonGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[
+            styles.button,
+            styles.primaryShadow,
+            { height: getHeight() },
+            touchableStyle,
+          ]}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <View style={styles.content}>
+              {icon && <View style={styles.iconContainer}>{icon}</View>}
+              <Text style={[styles.text, { color: '#FFFFFF' }, textStyle]}>
+                {title}
+              </Text>
+            </View>
+          )}
+        </LinearGradient>
+      );
+    }
+
+    if (variant === 'secondary') {
+      return (
+        <View
+          style={[
+            styles.button,
+            styles.secondaryGlass,
+            { height: getHeight() },
+            disabled && styles.disabled,
+            touchableStyle,
+          ]}
+        >
+          {loading ? (
+            <ActivityIndicator color={colors.primaryElectric} size="small" />
+          ) : (
+            <View style={styles.content}>
+              {icon && <View style={styles.iconContainer}>{icon}</View>}
+              <Text style={[styles.text, { color: colors.primaryElectric }, textStyle]}>
+                {title}
+              </Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    // Default other variants (success, danger, outline, etc.)
+    let bgColor = colors.primary;
+    let borderColor = 'transparent';
+    let borderWidth = 0;
+
+    if (disabled) {
+      bgColor = colors.surfaceMuted;
+    } else if (variant === 'success') {
+      bgColor = colors.success;
+    } else if (variant === 'danger') {
+      bgColor = colors.danger;
+    } else if (variant === 'dangerLight') {
+      bgColor = colors.dangerLight;
+    } else if (variant === 'outline') {
+      bgColor = 'rgba(255, 255, 255, 0.8)';
+      borderColor = colors.border;
+      borderWidth = 1.2;
+    } else if (variant === 'ghost') {
+      bgColor = 'transparent';
+    }
+
+    return (
+      <View
         style={[
           styles.button,
           {
-            backgroundColor: getBackgroundColor(),
-            borderColor: getBorderColor(),
+            backgroundColor: bgColor,
+            borderColor,
+            borderWidth,
             height: getHeight(),
-            borderWidth: variant === 'outline' ? 1 : 0,
-            width: width ? '100%' : undefined,
           },
           disabled && styles.disabled,
           touchableStyle,
         ]}
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled || loading}
-        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator color={getTextColor()} size="small" />
@@ -181,6 +225,21 @@ export const Button: React.FC<ButtonProps> = ({
             </Text>
           </View>
         )}
+      </View>
+    );
+  };
+
+  return (
+    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, containerStyle]}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={disabled || loading}
+        activeOpacity={0.88}
+        style={{ width: width ? '100%' : undefined }}
+      >
+        {renderButtonBody()}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -192,9 +251,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
+    overflow: 'hidden',
+  },
+  primaryShadow: {
+    shadowColor: colors.primaryViolet,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  secondaryGlass: {
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(124, 58, 237, 0.25)',
+    shadowColor: '#1E1B4B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   disabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
   content: {
     flexDirection: 'row',
@@ -205,8 +282,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   text: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 14.5,
+    fontWeight: '700',
     letterSpacing: 0.1,
   },
 });

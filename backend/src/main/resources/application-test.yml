@@ -20,6 +20,6 @@ app:
     mock-mode: true
 
 firebase:
-  project-id: crmcalling-60005
-  web-api-key: AIzaSyBtqnhkIqRSdZ_pLA7sdWB9bKy5WQBVvGg
+  project-id: callingcrm-9c9fd
+  web-api-key: AIzaSyBFXGeQ0OytxoSKwgj8o1gdf7m7O0VwNEk
   credentials-file: ""

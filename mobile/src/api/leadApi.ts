@@ -7,6 +7,11 @@ export const leadApi = {
     return res.data.data;
   },
 
+  getMyProjects: async (): Promise<Project[]> => {
+    const res = await apiClient.get<ApiResponse<Project[]>>('/projects/my-projects');
+    return res.data.data;
+  },
+
   getLeads: async (params?: {
     projectId?: number;
     status?: string;
@@ -56,7 +61,7 @@ export const leadApi = {
   },
 
   updateLeadStatus: async (id: number, status: string, notes?: string): Promise<Lead> => {
-    const res = await apiClient.put<ApiResponse<Lead>>(`/leads/${id}`, {
+    const res = await apiClient.patch<ApiResponse<Lead>>(`/leads/${id}/status`, {
       status,
       notes,
     });
@@ -71,12 +76,33 @@ export const leadApi = {
     return res.data.data;
   },
 
+  updateLead: async (
+    id: number,
+    data: {
+      name: string;
+      phone: string;
+      email?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      source?: string;
+      additionalInfo?: string;
+    }
+  ): Promise<Lead> => {
+    const res = await apiClient.put<ApiResponse<Lead>>(`/leads/${id}`, data);
+    return res.data.data;
+  },
+
   deleteLead: async (id: number): Promise<void> => {
     await apiClient.delete(`/leads/${id}`);
   },
 
   assignLead: async (leadId: number, userId: number): Promise<void> => {
     await apiClient.post(`/leads/${leadId}/assign`, { userId });
+  },
+
+  bulkAssignLeads: async (leadIds: number[], userId: number): Promise<void> => {
+    await apiClient.post('/leads/assign-bulk', { leadIds, userId });
   },
 
   reassignLead: async (leadId: number, userId: number, reason?: string): Promise<void> => {

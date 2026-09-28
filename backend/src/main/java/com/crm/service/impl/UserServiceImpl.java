@@ -22,6 +22,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,9 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
+    @PersistenceContext
+    private final EntityManager entityManager;
+
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final LeadAssignmentRepository leadAssignmentRepository;
@@ -39,6 +44,11 @@ public class UserServiceImpl implements UserService {
     private final FollowUpRepository followUpRepository;
     private final SalesRepository salesRepository;
     private final AuditLogRepository auditLogRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final NotificationRepository notificationRepository;
+    private final ShiftChangeRequestRepository shiftChangeRequestRepository;
+    private final AdminAccessRequestRepository adminAccessRequestRepository;
+    private final GoogleSheetsSyncLogRepository googleSheetsSyncLogRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserMapper userMapper;
     private final AuditService auditService;
@@ -157,7 +167,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public void deleteUser(Long id, Long currentUserId) {
+    public String deleteUser(Long id, Long currentUserId) {
         if (id.equals(currentUserId)) {
             throw new BusinessException("You cannot delete your own account.");
         }
@@ -165,31 +175,37 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + id));
 
+        String userName = user.getName();
+        User currentAdmin = userRepository.findById(currentUserId).orElse(null);
+
         // 1. Clean up lead assignments where assigned_by is this user
         List<LeadAssignment> createdAssignments = leadAssignmentRepository.findByAssignedById(id);
-        User currentAdmin = userRepository.findById(currentUserId).orElse(null);
-        if (currentAdmin != null) {
+        if (currentAdmin != null && !createdAssignments.isEmpty()) {
             for (LeadAssignment a : createdAssignments) {
                 a.setAssignedBy(currentAdmin);
             }
             leadAssignmentRepository.saveAll(createdAssignments);
         }
 
-        // 2. Unassign or delete assignments for this user
+        // 2. Unassign or delete assignments where user is assigned
         List<LeadAssignment> userAssignments = leadAssignmentRepository.findByUserId(id);
+        int assignedLeadCount = userAssignments.size();
         leadAssignmentRepository.deleteAll(userAssignments);
 
-        // 3. Clear audit logs user reference
-        List<AuditLog> auditLogs = auditLogRepository.findByUserId(id);
-        for (AuditLog log : auditLogs) {
-            log.setUser(null);
-        }
-        auditLogRepository.saveAll(auditLogs);
+        // 3. Delete or clear audit logs for this user
+        auditLogRepository.deleteByUserId(id);
 
         // 4. Delete follow-ups assigned to this user
         followUpRepository.deleteByUserId(id);
 
-        // 5. Delete calls made by this user
+        // 5. Delete or update calls referencing this user
+        List<com.crm.model.Call> classifiedCalls = callRepository.findByClassificationChangedById(id);
+        if (!classifiedCalls.isEmpty()) {
+            for (com.crm.model.Call c : classifiedCalls) {
+                c.setClassificationChangedBy(null);
+            }
+            callRepository.saveAll(classifiedCalls);
+        }
         callRepository.deleteByUserId(id);
 
         // 6. Delete notes authored by this user
@@ -199,14 +215,59 @@ public class UserServiceImpl implements UserService {
         List<Sale> sales = salesRepository.findByUserIdOrderByConvertedAtDesc(id);
         salesRepository.deleteAll(sales);
 
-        // 8. Delete user from Firebase Auth if linked
+        // 8. Delete attendance records for this user
+        attendanceRepository.deleteByUserId(id);
+
+        // 9. Delete notifications for this user
+        notificationRepository.deleteByUserId(id);
+
+        // 10. Clean up shift change requests for this user / reviewed by this user
+        List<com.crm.model.ShiftChangeRequest> reviewedShifts = shiftChangeRequestRepository.findByReviewedById(id);
+        if (currentAdmin != null && !reviewedShifts.isEmpty()) {
+            for (com.crm.model.ShiftChangeRequest scr : reviewedShifts) {
+                scr.setReviewedBy(currentAdmin);
+            }
+            shiftChangeRequestRepository.saveAll(reviewedShifts);
+        }
+        shiftChangeRequestRepository.deleteByUserId(id);
+
+        // 11. Clean up admin access requests for this user / reviewed by this user
+        List<com.crm.model.AdminAccessRequest> reviewedAccess = adminAccessRequestRepository.findByReviewedById(id);
+        if (currentAdmin != null && !reviewedAccess.isEmpty()) {
+            for (com.crm.model.AdminAccessRequest aar : reviewedAccess) {
+                aar.setReviewedBy(currentAdmin);
+            }
+            adminAccessRequestRepository.saveAll(reviewedAccess);
+        }
+        adminAccessRequestRepository.deleteByUserId(id);
+
+        // 12. Clean up Google sheets sync logs triggered by this user
+        googleSheetsSyncLogRepository.deleteByTriggeredById(id);
+
+        // 13. Flush all cascade deletions & updates to MySQL before removing the User row
+        entityManager.flush();
+
+        // 14. Delete user from Firebase Auth if linked (safely)
         if (user.getFirebaseUid() != null) {
-            firebaseAuthService.deleteFirebaseUser(user.getFirebaseUid());
+            try {
+                firebaseAuthService.deleteFirebaseUser(user.getFirebaseUid());
+            } catch (Exception e) {
+                // Continue with DB deletion
+            }
         }
 
-        // 9. Delete user from MySQL
+        // 15. Delete user from MySQL and flush
         userRepository.delete(user);
+        entityManager.flush();
+
         auditService.logAction(currentUserId, "User", id, "DELETE", user.getEmail(), "DELETED");
+
+        if (assignedLeadCount > 0) {
+            return String.format("User '%s' was deleted permanently. %d assigned lead%s unlinked.",
+                    userName, assignedLeadCount, assignedLeadCount == 1 ? " was" : "s were");
+        } else {
+            return String.format("User '%s' was deleted permanently.", userName);
+        }
     }
 
     @Override

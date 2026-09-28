@@ -39,6 +39,7 @@ public class CallEventRequest {
 
     private LocalDateTime timestamp;
     private Integer durationSeconds;
+    private Boolean isConnected;
 
     /**
      * Technical call result: CONNECTED, MISSED, REJECTED, FAILED, CANCELLED

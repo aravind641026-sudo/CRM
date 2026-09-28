@@ -46,17 +46,8 @@ export const usersApi = {
     return res.data.data;
   },
 
-  deleteUser: async (id: number): Promise<void> => {
-    await apiClient.delete(`/users/${id}`);
-  },
-
-  requestAdminAccess: async (reason?: string): Promise<any> => {
-    const res = await apiClient.post<ApiResponse<any>>('/users/request-admin-access', { reason });
-    return res.data.data;
-  },
-
-  getAdminAccessStatus: async (): Promise<any> => {
-    const res = await apiClient.get<ApiResponse<any>>('/users/admin-access-status');
-    return res.data.data;
+  deleteUser: async (id: number): Promise<string> => {
+    const res = await apiClient.delete<ApiResponse<string>>(`/users/${id}`);
+    return res.data.message || res.data.data || 'User deleted successfully.';
   },
 };

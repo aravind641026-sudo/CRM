@@ -32,6 +32,17 @@ public class LeadAssignmentController {
         return ResponseEntity.ok(ApiResponse.ok("Lead assigned successfully", response));
     }
 
+    @PostMapping("/assign-bulk")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<AssignmentHistoryResponse>>> bulkAssignLeads(
+            @Valid @RequestBody com.crm.dto.request.BulkAssignmentRequest request,
+            @CurrentUser UserPrincipal principal) {
+
+        List<AssignmentHistoryResponse> response = leadAssignmentService.bulkAssignLeads(
+                request.getLeadIds(), request.getUserId(), principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(response.size() + " leads assigned successfully", response));
+    }
+
     @PostMapping("/{id}/reassign")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<AssignmentHistoryResponse>> reassignLead(

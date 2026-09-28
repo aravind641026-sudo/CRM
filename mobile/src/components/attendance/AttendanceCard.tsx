@@ -11,6 +11,7 @@ import { spacing } from '../../theme/spacing';
 import { Attendance } from '../../types';
 import { attendanceApi } from '../../api/attendanceApi';
 import { useAuth } from '../../context/AuthContext';
+import { attendanceEventManager } from '../../utils/attendanceEvents';
 
 interface AttendanceCardProps {
   initialAttendance?: Attendance | null;
@@ -24,34 +25,56 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
   onAttendanceUpdated,
 }) => {
   const { isAuthenticated, token, isLoading: authLoading } = useAuth();
-  const [attendance, setAttendance] = useState<Attendance | null>(initialAttendance || null);
+  const [attendance, setAttendance] = useState<Attendance | null>(
+    initialAttendance !== undefined ? initialAttendance : (attendanceEventManager.getLatestAttendance() || null)
+  );
   const [loadingAction, setLoadingAction] = useState<'clockIn' | 'clockOut' | null>(null);
   const [liveDuration, setLiveDuration] = useState<string>('0h 0m');
+
+  const onUpdatedRef = React.useRef(onAttendanceUpdated);
+  useEffect(() => {
+    onUpdatedRef.current = onAttendanceUpdated;
+  });
 
   const fetchToday = useCallback(async () => {
     if (!isAuthenticated || !token || authLoading) return;
     try {
       const data = await attendanceApi.getTodayAttendance();
       setAttendance(data);
-      if (onAttendanceUpdated) onAttendanceUpdated(data);
+      attendanceEventManager.setLatestAttendance(data);
+      onUpdatedRef.current?.(data);
     } catch (e: any) {
       console.warn('Failed to load today attendance:', e?.message || e);
     }
-  }, [isAuthenticated, token, authLoading, onAttendanceUpdated]);
+  }, [isAuthenticated, token, authLoading]);
 
+  // Sync when initialAttendance prop changes
   useEffect(() => {
-    if (initialAttendance) {
+    if (initialAttendance !== undefined) {
       setAttendance(initialAttendance);
     } else {
       fetchToday();
     }
   }, [initialAttendance, fetchToday]);
 
-  // Refetch when screen comes into focus to ensure fresh day status
+  // Subscribe to real-time attendance changes across the entire app (e.g., from EmergencyCheckInModal)
+  useEffect(() => {
+    const unsubscribe = attendanceEventManager.subscribe((latestAtt) => {
+      if (latestAtt) {
+        setAttendance(latestAtt);
+        onUpdatedRef.current?.(latestAtt);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Refetch when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      fetchToday();
-    }, [fetchToday])
+      if (initialAttendance === undefined) {
+        fetchToday();
+      }
+    }, [initialAttendance, fetchToday])
   );
 
   // Parse time deterministically from ISO string (e.g. "2026-09-23T11:47:35")
@@ -120,6 +143,8 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
     try {
       const updated = await attendanceApi.clockIn();
       setAttendance(updated);
+      attendanceEventManager.setLatestAttendance(updated);
+      attendanceEventManager.clearSnooze();
       if (onAttendanceUpdated) onAttendanceUpdated(updated);
       const timeFormatted = formatAttendanceTime(updated.clockInTime);
       Alert.alert('Clocked In Successfully', `Punch recorded at ${timeFormatted}. Have a productive day!`);
@@ -144,6 +169,8 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
             try {
               const updated = await attendanceApi.clockOut();
               setAttendance(updated);
+              attendanceEventManager.setLatestAttendance(updated);
+              attendanceEventManager.clearSnooze();
               if (onAttendanceUpdated) onAttendanceUpdated(updated);
               const timeFormatted = formatAttendanceTime(updated.clockOutTime);
               const hours = Math.floor((updated.durationMinutes || 0) / 60);

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
@@ -18,6 +19,7 @@ import { Badge } from '../../components/common/Badge';
 import { Header } from '../../components/common/Header';
 import { LoadingState } from '../../components/common/LoadingState';
 import { ErrorState } from '../../components/common/ErrorState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { attendanceApi } from '../../api/attendanceApi';
 import { AttendanceMonthlyResponse, Attendance } from '../../types';
 
@@ -194,7 +196,8 @@ export const AttendanceHistoryScreen: React.FC = () => {
   }, [currentYear, currentMonth, elapsedDays, isFutureMonth, isCurrentMonth, monthlyData]);
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+    <AmbientBackground variant="home">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <Header
         title={targetUserName ? `${targetUserName}'s Attendance` : 'Attendance History'}
         subtitle={
@@ -346,35 +349,49 @@ export const AttendanceHistoryScreen: React.FC = () => {
             {/* View Mode Toggle: Day-by-Day List vs Calendar Grid */}
             <View style={styles.viewToggleRow}>
               <TouchableOpacity
-                style={[styles.toggleBtn, viewMode === 'list' && styles.toggleBtnActive]}
+                style={styles.toggleBtnTouchable}
                 onPress={() => setViewMode('list')}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Ionicons
-                  name="list-outline"
-                  size={15}
-                  color={viewMode === 'list' ? '#FFFFFF' : colors.textSecondary}
-                />
-                <Text style={[styles.toggleBtnText, viewMode === 'list' && styles.toggleBtnTextActive]}>
-                  Daily History List
-                </Text>
+                {viewMode === 'list' ? (
+                  <LinearGradient
+                    colors={colors.primaryButtonGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.toggleBtnGradient}
+                  >
+                    <Ionicons name="list-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.toggleBtnTextActive}>Daily History List</Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.toggleBtnInactive}>
+                    <Ionicons name="list-outline" size={16} color={colors.textSecondary} />
+                    <Text style={styles.toggleBtnTextInactive}>Daily History List</Text>
+                  </View>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.toggleBtn, viewMode === 'calendar' && styles.toggleBtnActive]}
+                style={styles.toggleBtnTouchable}
                 onPress={() => setViewMode('calendar')}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Ionicons
-                  name="grid-outline"
-                  size={15}
-                  color={viewMode === 'calendar' ? '#FFFFFF' : colors.textSecondary}
-                />
-                <Text
-                  style={[styles.toggleBtnText, viewMode === 'calendar' && styles.toggleBtnTextActive]}
-                >
-                  Calendar Grid
-                </Text>
+                {viewMode === 'calendar' ? (
+                  <LinearGradient
+                    colors={colors.primaryButtonGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.toggleBtnGradient}
+                  >
+                    <Ionicons name="grid-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.toggleBtnTextActive}>Calendar Grid</Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.toggleBtnInactive}>
+                    <Ionicons name="grid-outline" size={16} color={colors.textSecondary} />
+                    <Text style={styles.toggleBtnTextInactive}>Calendar Grid</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -607,14 +624,37 @@ export const AttendanceHistoryScreen: React.FC = () => {
                         else if (record.status === 'HOLIDAY') statusDotColor = colors.info;
                       }
 
+                      if (isSelected) {
+                        return (
+                          <TouchableOpacity
+                            key={`day-${day}`}
+                            onPress={() => handleSelectDay(day)}
+                            activeOpacity={0.85}
+                            style={styles.dayCellTouchable}
+                          >
+                            <LinearGradient
+                              colors={['#2563EB', '#7C3AED']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={styles.dayCellSelectedGradient}
+                            >
+                              <Text style={styles.dayTextSelected}>{day}</Text>
+                              {statusDotColor ? (
+                                <View style={[styles.statusDot, { backgroundColor: '#FFFFFF' }]} />
+                              ) : null}
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        );
+                      }
+
                       return (
                         <TouchableOpacity
                           key={`day-${day}`}
-                          style={[styles.dayCell, isSelected && styles.dayCellSelected]}
+                          style={styles.dayCell}
                           onPress={() => handleSelectDay(day)}
                           activeOpacity={0.7}
                         >
-                          <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>
+                          <Text style={styles.dayText}>
                             {day}
                           </Text>
                           {statusDotColor && (
@@ -787,14 +827,15 @@ export const AttendanceHistoryScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     padding: spacing.md,
@@ -918,25 +959,34 @@ const styles = StyleSheet.create({
   kpiCard: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.sm + 4,
     paddingHorizontal: 4,
-    backgroundColor: colors.surfaceCard,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 20,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
     marginBottom: 0,
   },
   kpiIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   kpiCount: {
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.4,
   },
   kpiLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.textSecondary,
     marginTop: 2,
     fontWeight: '600',
@@ -944,33 +994,72 @@ const styles = StyleSheet.create({
   },
   viewToggleRow: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: spacing.borderRadius.md,
-    padding: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    borderRadius: 18,
+    padding: 4,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  toggleBtn: {
+  toggleBtnTouchable: {
     flex: 1,
+  },
+  toggleBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: spacing.xs + 3,
-    borderRadius: spacing.borderRadius.sm,
+    paddingVertical: 10,
+    borderRadius: 14,
+    shadowColor: colors.primaryViolet,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  toggleBtnActive: {
-    backgroundColor: colors.primary,
+  toggleBtnInactive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 14,
   },
-  toggleBtnText: {
-    fontSize: 12,
+  toggleBtnTextInactive: {
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
+    letterSpacing: -0.2,
   },
   toggleBtnTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: -0.2,
+  },
+  dayCellTouchable: {
+    width: 40,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 2,
+  },
+  dayCellSelectedGradient: {
+    width: 38,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
   historyListSection: {
     marginBottom: spacing.md,

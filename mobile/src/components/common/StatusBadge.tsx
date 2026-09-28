@@ -54,6 +54,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       variant === 'danger' ||
       key === 'NOT_ATTENDED' ||
       key === 'MISSED' ||
+      key.includes('MISSED') ||
       key === 'FAILED' ||
       key === 'NO_ANSWER' ||
       key === 'LEAVE' ||
@@ -62,7 +63,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       key === 'OVERDUE' ||
       key === 'REJECTED'
     ) {
-      return { bg: colors.dangerLight, text: colors.danger, dot: colors.danger, border: 'rgba(220, 38, 38, 0.2)' };
+      return { bg: '#FEE2E2', text: '#DC2626', dot: '#DC2626', border: '#FECACA' };
     }
 
     if (

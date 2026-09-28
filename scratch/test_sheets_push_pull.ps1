@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $baseUrl = "http://localhost:8080"
-$secret = "AKfycbylAaHN1h43Q0FcdQTmoBJ44457TPz7B7djsjkb8RbrfVJkDehXwwJP1cRq7XsueVG6"
+$secret = "AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl"
 
 $headers = @{
     "Content-Type" = "application/json"

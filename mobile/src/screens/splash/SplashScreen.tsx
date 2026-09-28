@@ -1,149 +1,96 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Animated,
-  ActivityIndicator,
-  Image,
+  StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEventListener } from 'expo';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors } from '../../theme/colors';
-import { spacing } from '../../theme/spacing';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../types';
+
+const videoSource = require('../../../assets/splashScreenVid.mp4');
 
 export const SplashScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isAuthenticated, isLoading } = useAuth();
 
-  const scaleAnim = useRef(new Animated.Value(0.85)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const navigatedRef = useRef(false);
 
+  const handleNavigateNext = useCallback(() => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 350,
+      useNativeDriver: true,
+    }).start(() => {
+      if (isAuthenticated) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Main' }],
+        });
+      } else {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    });
+  }, [fadeAnim, isAuthenticated, navigation]);
+
+  // Initialize expo-video player
+  const player = useVideoPlayer(videoSource, (p) => {
+    p.loop = false;
+    p.muted = false;
+    p.play();
+  });
+
+  // Listen for video completion event
+  useEventListener(player, 'playToEnd', () => {
+    handleNavigateNext();
+  });
+
+  // Fallback safety timeout (4.5s) to guarantee navigation on all devices
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [opacityAnim, scaleAnim]);
+    const timer = setTimeout(() => {
+      if (!isLoading) {
+        handleNavigateNext();
+      }
+    }, 4500);
 
-  useEffect(() => {
-    if (!isLoading) {
-      const timer = setTimeout(() => {
-        if (isAuthenticated) {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Main' }],
-          });
-        } else {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
-        }
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading, isAuthenticated, navigation]);
+    return () => clearTimeout(timer);
+  }, [isLoading, handleNavigateNext]);
 
   return (
-    <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={styles.container}>
-      <Animated.View
-        style={[
-          styles.content,
-          {
-            opacity: opacityAnim,
-            transform: [{ scale: scaleAnim }],
-          },
-        ]}
-      >
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../../assets/qmex-logo.jpg')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-        </View>
-
-        <Text style={styles.title}>QMEX CRM</Text>
-        <Text style={styles.subtitle}>ENTERPRISE WORKSPACE</Text>
-
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.loadingText}>Initializing workspace...</Text>
-        </View>
-      </Animated.View>
-
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>Secure Enterprise Edition • v1.0.0</Text>
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F6F6F6" translucent />
+      <View style={styles.videoWrapper}>
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={player}
+          contentFit="contain"
+          nativeControls={false}
+        />
       </View>
-    </SafeAreaView>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
+    backgroundColor: '#F6F6F6',
   },
-  content: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoContainer: {
-    marginBottom: spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoImage: {
-    width: 250,
-    height: 140,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    letterSpacing: 2,
-  },
-  subtitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    letterSpacing: 3,
-    marginTop: spacing.xs,
-  },
-  loaderContainer: {
-    marginTop: spacing.xxl,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  loadingText: {
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: spacing.xl,
-  },
-  footerText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.5,
+  videoWrapper: {
+    flex: 1,
+    backgroundColor: '#F6F6F6',
+    width: '100%',
+    height: '100%',
   },
 });

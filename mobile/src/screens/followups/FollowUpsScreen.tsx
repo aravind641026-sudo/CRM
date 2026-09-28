@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  ScrollView,
   TouchableOpacity,
   RefreshControl,
   Linking,
   Alert,
+  Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
@@ -20,6 +20,10 @@ import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { LoadingState } from '../../components/common/LoadingState';
 import { EmptyState } from '../../components/common/EmptyState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
+import { SearchFilterBar } from '../../components/common/SearchFilterBar';
+import { FilterSheetModal } from '../../components/common/FilterSheetModal';
+import { useCollapsibleHeader } from '../../utils/useCollapsibleHeader';
 import { followUpApi } from '../../api/followUpApi';
 import { FollowUp } from '../../types';
 
@@ -28,12 +32,35 @@ type FollowUpTab = 'today' | 'upcoming' | 'overdue' | 'completed';
 export const FollowUpsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
+  const { handleScroll, collapsibleStyle } = useCollapsibleHeader(68);
 
   const initialPeriod = (route.params?.period as FollowUpTab) || 'today';
   const [activeTab, setActiveTab] = useState<FollowUpTab>(initialPeriod);
+  const [searchQuery, setSearchQuery] = useState('');
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Filter Sheet Modal State
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [tempTab, setTempTab] = useState<FollowUpTab>(activeTab);
+
+  const openFilterModal = () => {
+    setTempTab(activeTab);
+    setFilterModalVisible(true);
+  };
+
+  const handleApplyFilters = () => {
+    setActiveTab(tempTab);
+  };
+
+  const handleResetFilters = () => {
+    setActiveTab('today');
+  };
+
+  const hasActiveFilters = activeTab !== 'today';
+  const activeFilterCount = hasActiveFilters ? 1 : 0;
 
   const fetchFollowUps = useCallback(async (isRefresh = false) => {
     if (!isRefresh) setLoading(true);
@@ -96,6 +123,17 @@ export const FollowUpsScreen: React.FC = () => {
     }
   };
 
+  const filteredFollowUps = useMemo(() => {
+    if (!searchQuery.trim()) return followUps;
+    const q = searchQuery.toLowerCase().trim();
+    return followUps.filter((item) => {
+      const name = (item.leadName || '').toLowerCase();
+      const phone = (item.leadPhone || '').toLowerCase();
+      const notes = (item.notes || '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || notes.includes(q);
+    });
+  }, [followUps, searchQuery]);
+
   const renderFollowUpItem = ({ item }: { item: FollowUp }) => {
     const isCompleted = item.status === 'COMPLETED';
 
@@ -103,7 +141,7 @@ export const FollowUpsScreen: React.FC = () => {
       <Card style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.leadInfo}>
-            <Text style={styles.leadName}>{item.leadName || `Lead #${item.leadId}`}</Text>
+            <Text style={styles.leadName}>{item.leadName || item.leadPhone || 'Scheduled Follow-up'}</Text>
             {item.leadPhone ? (
               <Text style={styles.leadPhone}>{item.leadPhone}</Text>
             ) : null}
@@ -175,114 +213,113 @@ export const FollowUpsScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      <Header
-        title="Follow-ups Console"
-        subtitle="Customer callback promises, appointments & scheduled visits"
-        onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
-      />
-
-      {/* Segmented Filter Pills */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabsRow}
-        style={styles.tabsScroll}
-      >
-        {(
-          [
-            { id: 'today', label: 'Today', icon: 'today-outline' },
-            { id: 'overdue', label: 'Overdue', icon: 'alert-circle-outline' },
-            { id: 'upcoming', label: 'Upcoming', icon: 'calendar-outline' },
-            { id: 'completed', label: 'Completed', icon: 'checkmark-circle-outline' },
-          ] as const
-        ).map((t) => (
-          <TouchableOpacity
-            key={t.id}
-            style={[styles.tabBtn, activeTab === t.id && styles.tabBtnActive]}
-            onPress={() => setActiveTab(t.id)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={t.icon as any}
-              size={13}
-              color={activeTab === t.id ? '#ffffff' : colors.textSecondary}
-            />
-            <Text style={[styles.tabText, activeTab === t.id && styles.tabTextActive]}>
-              {t.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {loading && !refreshing ? (
-        <LoadingState message="Loading scheduled follow-ups..." fullScreen />
-      ) : followUps.length === 0 ? (
-        <EmptyState
-          icon="calendar-outline"
-          title={`No ${activeTab.toUpperCase()} Follow-ups`}
-          message={`You have no ${activeTab} scheduled callbacks at this time.`}
+    <AmbientBackground variant="leads">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+        <Header
+          title="Follow-ups Console"
+          subtitle="Customer callback promises, appointments & scheduled visits"
+          onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
         />
-      ) : (
-        <FlatList
-          data={followUps}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderFollowUpItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
-            />
-          }
-        />
-      )}
-    </SafeAreaView>
+
+        {/* Collapsible Search + Filter Bar */}
+        <Animated.View style={collapsibleStyle}>
+          <SearchFilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            placeholder="Search follow-ups by lead, phone or notes..."
+            onFilterPress={openFilterModal}
+            isFilterActive={hasActiveFilters}
+            activeFilterCount={activeFilterCount}
+          />
+        </Animated.View>
+
+        {/* Filter Sheet Modal */}
+        <FilterSheetModal
+          visible={filterModalVisible}
+          onClose={() => setFilterModalVisible(false)}
+          title="Filter Follow-ups"
+          hasActiveFilters={hasActiveFilters}
+          onApply={handleApplyFilters}
+          onReset={handleResetFilters}
+        >
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterSectionTitle}>FOLLOW-UP STATUS & TIMING</Text>
+            <View style={styles.filterOptionsRow}>
+              {(
+                [
+                  { id: 'today', label: 'Today', icon: 'today-outline' },
+                  { id: 'overdue', label: 'Overdue', icon: 'alert-circle-outline' },
+                  { id: 'upcoming', label: 'Upcoming', icon: 'calendar-outline' },
+                  { id: 'completed', label: 'Completed', icon: 'checkmark-circle-outline' },
+                ] as const
+              ).map((t) => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[
+                    styles.filterChip,
+                    tempTab === t.id && styles.filterChipActive,
+                  ]}
+                  onPress={() => setTempTab(t.id)}
+                >
+                  <Ionicons
+                    name={t.icon as any}
+                    size={14}
+                    color={tempTab === t.id ? '#FFFFFF' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      tempTab === t.id && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </FilterSheetModal>
+
+        {loading && !refreshing ? (
+          <LoadingState message="Loading scheduled follow-ups..." fullScreen />
+        ) : filteredFollowUps.length === 0 ? (
+          <EmptyState
+            icon="calendar-outline"
+            title={`No ${activeTab.toUpperCase()} Follow-ups`}
+            description={
+              searchQuery
+                ? 'No follow-ups match your search query.'
+                : `You have no ${activeTab} scheduled callbacks at this time.`
+            }
+          />
+        ) : (
+          <FlatList
+            data={filteredFollowUps}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={renderFollowUpItem}
+            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            }
+          />
+        )}
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  tabsScroll: {
-    flexGrow: 0,
-    marginBottom: spacing.xs,
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    gap: spacing.xs,
-  },
-  tabBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  tabBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  tabText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  tabTextActive: {
-    color: '#ffffff',
-    fontWeight: '700',
+    backgroundColor: 'transparent',
   },
   listContent: {
     paddingHorizontal: spacing.md,
@@ -387,5 +424,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.success,
+  },
+  filterGroup: {
+    marginBottom: 8,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  filterOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterChipActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#6D28D9',
+  },
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

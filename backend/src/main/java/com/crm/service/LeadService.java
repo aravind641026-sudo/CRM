@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 public interface LeadService {
     LeadSummaryResponse createLead(LeadCreateRequest request, Long currentUserId);
     LeadSummaryResponse updateLead(Long id, LeadUpdateRequest request, Long currentUserId, boolean isAdmin);
+    LeadSummaryResponse updateLeadStatus(Long id, String status, String notes, Long currentUserId, boolean isAdmin);
     LeadSummaryResponse updateLeadOutcome(Long id, LeadOutcomeRequest request, Long currentUserId, boolean isAdmin);
     LeadDetailResponse getLeadDetails(Long id, Long currentUserId, boolean isAdmin);
     Page<LeadSummaryResponse> searchLeads(Long projectId, String status, String outcome, String search,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,19 +27,63 @@ import { Button } from '../../components/common/Button';
 import { FormModal } from '../../components/common/FormModal';
 import { LoadingState } from '../../components/common/LoadingState';
 import { EmptyState } from '../../components/common/EmptyState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
+import { SearchFilterBar } from '../../components/common/SearchFilterBar';
+import { FilterSheetModal } from '../../components/common/FilterSheetModal';
+import { DeleteConfirmationModal } from '../../components/common/DeleteConfirmationModal';
+import { useCollapsibleHeader } from '../../utils/useCollapsibleHeader';
 import { usersApi } from '../../api/usersApi';
+import { useToast } from '../../context/ToastContext';
 import { User } from '../../types';
 
 export const AdminUsersScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
+  const { handleScroll, collapsibleStyle } = useCollapsibleHeader(68);
+
+  const { showSuccess, showError, showInfo, showWarning } = useToast();
 
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Delete User Modal State
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'ROLE_ADMIN' | 'ROLE_USER'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [shiftFilter, setShiftFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Filter Sheet Modal State
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [tempRole, setTempRole] = useState<'ALL' | 'ROLE_ADMIN' | 'ROLE_USER'>(roleFilter);
+  const [tempStatus, setTempStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>(statusFilter);
+  const [tempShift, setTempShift] = useState<string>(shiftFilter);
+
+  const openFilterModal = () => {
+    setTempRole(roleFilter);
+    setTempStatus(statusFilter);
+    setTempShift(shiftFilter);
+    setFilterModalVisible(true);
+  };
+
+  const handleApplyFilters = () => {
+    setRoleFilter(tempRole);
+    setStatusFilter(tempStatus);
+    setShiftFilter(tempShift);
+  };
+
+  const handleResetFilters = () => {
+    setRoleFilter('ALL');
+    setStatusFilter('ALL');
+    setShiftFilter('ALL');
+  };
+
+  const hasActiveFilters = roleFilter !== 'ALL' || statusFilter !== 'ALL' || shiftFilter !== 'ALL';
+  const activeFilterCount = (roleFilter !== 'ALL' ? 1 : 0) + (statusFilter !== 'ALL' ? 1 : 0) + (shiftFilter !== 'ALL' ? 1 : 0);
 
   // Create Modal
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -66,14 +111,21 @@ export const AdminUsersScreen: React.FC = () => {
         search: searchQuery.trim() || undefined,
         size: 50,
       });
-      setUsers(res.content || []);
+      let list = res.content || [];
+      if (statusFilter !== 'ALL') {
+        list = list.filter((u) => u.status === statusFilter);
+      }
+      if (shiftFilter !== 'ALL') {
+        list = list.filter((u) => u.shift === shiftFilter);
+      }
+      setUsers(list);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to fetch users');
+      showError('Failed to Fetch Users', err.message || 'Unable to retrieve user list.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [roleFilter, searchQuery]);
+  }, [roleFilter, statusFilter, shiftFilter, searchQuery, showError]);
 
   useEffect(() => {
     fetchUsers();
@@ -96,11 +148,11 @@ export const AdminUsersScreen: React.FC = () => {
 
   const handleCreateUser = async () => {
     if (!newName.trim() || !newEmail.trim() || !newPassword) {
-      Alert.alert('Validation Error', 'Name, email, and password are required.');
+      showWarning('Required Fields', 'Name, email, and password are required.');
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert('Validation Error', 'Password must be at least 6 characters.');
+      showWarning('Weak Password', 'Password must be at least 6 characters.');
       return;
     }
 
@@ -114,11 +166,11 @@ export const AdminUsersScreen: React.FC = () => {
         role: newRole,
         shift: newShift,
       });
-      Alert.alert('Success', 'User created successfully.');
+      showSuccess('User Created', `User "${newName.trim()}" was created successfully.`);
       setCreateModalVisible(false);
       fetchUsers(true);
     } catch (err: any) {
-      Alert.alert('Create User Failed', err.message || 'Unable to create user.');
+      showError('Create User Failed', err.message || 'Unable to create user.');
     } finally {
       setSubmitting(false);
     }
@@ -136,7 +188,7 @@ export const AdminUsersScreen: React.FC = () => {
   const handleUpdateUser = async () => {
     if (!editingUser) return;
     if (!editName.trim()) {
-      Alert.alert('Validation Error', 'Name is required.');
+      showWarning('Validation Error', 'User name is required.');
       return;
     }
 
@@ -148,11 +200,11 @@ export const AdminUsersScreen: React.FC = () => {
         role: editRole,
         shift: editShift,
       });
-      Alert.alert('Success', 'User profile updated.');
+      showSuccess('Profile Updated', `User "${editName.trim()}" profile updated.`);
       setEditModalVisible(false);
       fetchUsers(true);
     } catch (err: any) {
-      Alert.alert('Update Failed', err.message || 'Unable to update user.');
+      showError('Update Failed', err.message || 'Unable to update user.');
     } finally {
       setSubmitting(false);
     }
@@ -162,32 +214,36 @@ export const AdminUsersScreen: React.FC = () => {
     const nextStatus = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     try {
       await usersApi.toggleStatus(user.id, nextStatus);
+      showInfo('Status Changed', `User "${user.name}" is now ${nextStatus.toLowerCase()}.`);
       fetchUsers(true);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to update user status.');
+      showError('Status Update Failed', err.message || 'Failed to update user status.');
     }
   };
 
   const handleDeleteUser = (user: User) => {
-    Alert.alert(
-      'Delete User',
-      `Permanently delete ${user.name} (${user.email})? This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await usersApi.deleteUser(user.id);
-              fetchUsers(true);
-            } catch (err: any) {
-              Alert.alert('Delete Failed', err.message || 'Unable to delete user.');
-            }
-          },
-        },
-      ]
-    );
+    setUserToDelete(user);
+    setDeleteModalVisible(true);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    const targetName = userToDelete.name;
+    setDeletingUser(true);
+    try {
+      const responseMessage = await usersApi.deleteUser(userToDelete.id);
+      setDeleteModalVisible(false);
+      setUserToDelete(null);
+      fetchUsers(true);
+      showSuccess(
+        'User Deleted',
+        responseMessage || `User "${targetName}" was permanently removed.`
+      );
+    } catch (err: any) {
+      showError('Delete Failed', err.message || 'Unable to delete user.');
+    } finally {
+      setDeletingUser(false);
+    }
   };
 
   const renderUserCard = ({ item }: { item: User }) => {
@@ -302,68 +358,148 @@ export const AdminUsersScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      <MeqHeader
-        showLogo={false}
-        title="User Management"
-        subtitle="Manage employees, admin privileges & permissions"
-        onBack={() => navigation.goBack()}
-        rightElement={
-          <TouchableOpacity
-            style={styles.addUserHeaderBtn}
-            onPress={handleOpenCreate}
-            activeOpacity={0.7}
-          >
-            <GradientView
-              colors={colors.primaryGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.addUserGradient}
+    <AmbientBackground variant="admin">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+        <MeqHeader
+          showLogo={false}
+          title="User Management"
+          subtitle="Manage employees, admin privileges & permissions"
+          onBack={() => navigation.goBack()}
+          rightElement={
+            <TouchableOpacity
+              style={styles.addUserHeaderBtn}
+              onPress={handleOpenCreate}
+              activeOpacity={0.7}
             >
-              <Ionicons name="person-add" size={16} color="#ffffff" />
-            </GradientView>
-          </TouchableOpacity>
-        }
-      />
-
-      {/* Filter Segment & Search Input */}
-      <View style={styles.toolbar}>
-        <View style={styles.filterRow}>
-          {(['ALL', 'ROLE_USER', 'ROLE_ADMIN'] as const).map((r) => {
-            const isActive = roleFilter === r;
-            const label = r === 'ALL' ? 'All Roles' : r === 'ROLE_ADMIN' ? 'Admins' : 'Sales Agents';
-            return (
-              <TouchableOpacity
-                key={r}
-                onPress={() => setRoleFilter(r)}
-                activeOpacity={0.7}
+              <GradientView
+                colors={colors.primaryGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.addUserGradient}
               >
-                {isActive ? (
-                  <GradientView
-                    colors={colors.primaryGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.rolePillActive}
-                  >
-                    <Text style={styles.rolePillTextActive}>{label}</Text>
-                  </GradientView>
-                ) : (
-                  <View style={styles.rolePill}>
-                    <Text style={styles.rolePillText}>{label}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <Input
-          placeholder="Search by name, email, phone..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          leftIcon="search-outline"
+                <Ionicons name="person-add" size={16} color="#ffffff" />
+              </GradientView>
+            </TouchableOpacity>
+          }
         />
-      </View>
+
+        {/* Collapsible Search + Filter Bar */}
+        <Animated.View style={collapsibleStyle}>
+          <SearchFilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            placeholder="Search users by name, email, phone..."
+            onFilterPress={openFilterModal}
+            isFilterActive={hasActiveFilters}
+            activeFilterCount={activeFilterCount}
+          />
+        </Animated.View>
+
+        {/* Filter Sheet Modal */}
+        <FilterSheetModal
+          visible={filterModalVisible}
+          onClose={() => setFilterModalVisible(false)}
+          title="Filter Users"
+          hasActiveFilters={hasActiveFilters}
+          onApply={handleApplyFilters}
+          onReset={handleResetFilters}
+        >
+          {/* Role Filter */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterSectionTitle}>USER ROLE</Text>
+            <View style={styles.filterOptionsRow}>
+              {(
+                [
+                  { id: 'ALL', label: 'All Roles' },
+                  { id: 'ROLE_USER', label: 'Sales Agents' },
+                  { id: 'ROLE_ADMIN', label: 'Administrators' },
+                ] as const
+              ).map((r) => (
+                <TouchableOpacity
+                  key={r.id}
+                  style={[
+                    styles.filterChip,
+                    tempRole === r.id && styles.filterChipActive,
+                  ]}
+                  onPress={() => setTempRole(r.id)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      tempRole === r.id && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {r.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Status Filter */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterSectionTitle}>ACCOUNT STATUS</Text>
+            <View style={styles.filterOptionsRow}>
+              {(
+                [
+                  { id: 'ALL', label: 'All Status' },
+                  { id: 'ACTIVE', label: 'Active Users' },
+                  { id: 'INACTIVE', label: 'Inactive Users' },
+                ] as const
+              ).map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[
+                    styles.filterChip,
+                    tempStatus === s.id && styles.filterChipActive,
+                  ]}
+                  onPress={() => setTempStatus(s.id)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      tempStatus === s.id && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Shift Filter */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterSectionTitle}>WORKING SHIFT</Text>
+            <View style={styles.filterOptionsRow}>
+              {(
+                [
+                  { id: 'ALL', label: 'All Shifts' },
+                  { id: 'SHIFT_1000_1900', label: '10:00 AM – 07:00 PM' },
+                  { id: 'SHIFT_0900_1800', label: '09:00 AM – 06:00 PM' },
+                ] as const
+              ).map((sh) => (
+                <TouchableOpacity
+                  key={sh.id}
+                  style={[
+                    styles.filterChip,
+                    tempShift === sh.id && styles.filterChipActive,
+                  ]}
+                  onPress={() => setTempShift(sh.id)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      tempShift === sh.id && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {sh.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </FilterSheetModal>
 
       {loading && !refreshing ? (
         <LoadingState message="Loading users..." fullScreen />
@@ -380,8 +516,10 @@ export const AdminUsersScreen: React.FC = () => {
           data={users}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderUserCard}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -629,7 +767,25 @@ export const AdminUsersScreen: React.FC = () => {
           </View>
         </View>
       </FormModal>
+
+      {/* Typed Delete User Confirmation Modal */}
+      <DeleteConfirmationModal
+        visible={deleteModalVisible}
+        onClose={() => {
+          if (!deletingUser) {
+            setDeleteModalVisible(false);
+            setUserToDelete(null);
+          }
+        }}
+        onConfirm={handleConfirmDeleteUser}
+        title="Delete User Account?"
+        itemName={userToDelete ? `${userToDelete.name} (${userToDelete.email})` : undefined}
+        description={`Are you sure you want to permanently delete user "${userToDelete?.name || ''}"? This action cannot be undone.`}
+        confirmKeyword="DELETE"
+        loading={deletingUser}
+      />
     </SafeAreaView>
+  </AmbientBackground>
   );
 };
 
@@ -944,5 +1100,45 @@ const styles = StyleSheet.create({
   },
   modalActionBtn: {
     flex: 1,
+  },
+  filterGroup: {
+    marginBottom: 8,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  filterOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterChipActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#6D28D9',
+  },
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

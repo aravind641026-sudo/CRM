@@ -1,16 +1,11 @@
 package com.crm.controller;
 
-import com.crm.dto.response.AdminAccessRequestResponse;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.NotificationResponse;
-import com.crm.exception.ResourceNotFoundException;
-import com.crm.model.AdminAccessRequest;
 import com.crm.model.AuditLog;
-import com.crm.model.Role;
-import com.crm.model.User;
-import com.crm.repository.AdminAccessRequestRepository;
 import com.crm.repository.AuditLogRepository;
 import com.crm.repository.RoleRepository;
+import com.crm.repository.ShiftChangeRequestRepository;
 import com.crm.repository.UserRepository;
 import com.crm.security.CurrentUser;
 import com.crm.security.UserPrincipal;
@@ -19,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -32,8 +26,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class NotificationController {
 
-    private final AdminAccessRequestRepository adminAccessRequestRepository;
-    private final com.crm.repository.ShiftChangeRequestRepository shiftChangeRequestRepository;
+    private final ShiftChangeRequestRepository shiftChangeRequestRepository;
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -64,31 +57,7 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> getAdminNotifications() {
         List<NotificationResponse> list = new ArrayList<>();
 
-        // 1. Admin Access Requests (Permission approval requests)
-        List<AdminAccessRequest> requests = adminAccessRequestRepository.findAll();
-        for (AdminAccessRequest req : requests) {
-            String requesterName = req.getUser() != null ? req.getUser().getName() : "A user";
-            String title = "PENDING".equalsIgnoreCase(req.getStatus())
-                    ? "Admin Access Request: " + requesterName
-                    : "Permission Request (" + req.getStatus() + "): " + requesterName;
-
-            String desc = requesterName + " requested Admin privileges. Reason: " +
-                    (req.getReason() != null ? req.getReason() : "No details provided");
-
-            list.add(NotificationResponse.builder()
-                    .id("req-" + req.getId())
-                    .type("PERMISSION_REQUEST")
-                    .title(title)
-                    .message(desc)
-                    .createdAt(req.getRequestedAt() != null ? req.getRequestedAt() : LocalDateTime.now())
-                    .read(!"PENDING".equalsIgnoreCase(req.getStatus()))
-                    .status(req.getStatus())
-                    .referenceId(req.getId())
-                    .referenceType("AdminAccessRequest")
-                    .build());
-        }
-
-        // 2. Shift Change Requests
+        // 1. Shift Change Requests
         List<com.crm.model.ShiftChangeRequest> shiftRequests = shiftChangeRequestRepository.findAllByOrderByRequestedAtDesc();
         for (com.crm.model.ShiftChangeRequest sr : shiftRequests) {
             String requesterName = sr.getUser() != null ? sr.getUser().getName() : "A user";
@@ -153,64 +122,5 @@ public class NotificationController {
         }
 
         return ResponseEntity.ok(ApiResponse.ok(list));
-    }
-
-    @PostMapping("/admin/review-access/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
-    public ResponseEntity<ApiResponse<AdminAccessRequestResponse>> reviewAdminAccess(
-            @PathVariable Long id,
-            @RequestParam String status,
-            @RequestParam(required = false) String adminNotes,
-            @CurrentUser UserPrincipal principal) {
-
-        AdminAccessRequest req = adminAccessRequestRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Admin access request not found with id: " + id));
-
-        String newStatus = status.toUpperCase();
-        if (!"APPROVED".equals(newStatus) && !"REJECTED".equals(newStatus)) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Status must be either APPROVED or REJECTED"));
-        }
-
-        req.setStatus(newStatus);
-        req.setReviewedAt(LocalDateTime.now());
-        req.setAdminNotes(adminNotes);
-
-        User reviewer = userRepository.findById(principal.getId()).orElse(null);
-        req.setReviewedBy(reviewer);
-
-        if ("APPROVED".equals(newStatus) && req.getUser() != null) {
-            User targetUser = req.getUser();
-            Role adminRole = roleRepository.findByName("ROLE_ADMIN")
-                    .orElseGet(() -> roleRepository.save(Role.builder().name("ROLE_ADMIN").build()));
-            targetUser.setRole(adminRole);
-            userRepository.save(targetUser);
-        }
-
-        AdminAccessRequest saved = adminAccessRequestRepository.save(req);
-
-        // Notify requesting user
-        if (saved.getUser() != null) {
-            notificationService.createPromotionDecisionNotification(
-                    saved.getUser(),
-                    "APPROVED".equals(newStatus),
-                    adminNotes,
-                    saved.getId()
-            );
-        }
-
-        AdminAccessRequestResponse response = AdminAccessRequestResponse.builder()
-                .id(saved.getId())
-                .userId(saved.getUser() != null ? saved.getUser().getId() : null)
-                .userName(saved.getUser() != null ? saved.getUser().getName() : null)
-                .userEmail(saved.getUser() != null ? saved.getUser().getEmail() : null)
-                .status(saved.getStatus())
-                .reason(saved.getReason())
-                .requestedAt(saved.getRequestedAt())
-                .reviewedAt(saved.getReviewedAt())
-                .adminNotes(saved.getAdminNotes())
-                .build();
-
-        return ResponseEntity.ok(ApiResponse.ok("Access request updated to " + newStatus, response));
     }
 }

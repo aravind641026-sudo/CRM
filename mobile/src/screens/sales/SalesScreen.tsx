@@ -6,7 +6,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
@@ -17,12 +17,14 @@ import { Header } from '../../components/common/Header';
 import { LoadingState } from '../../components/common/LoadingState';
 import { ErrorState } from '../../components/common/ErrorState';
 import { EmptyState } from '../../components/common/EmptyState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { salesApi } from '../../api/salesApi';
 import { dashboardApi } from '../../api/dashboardApi';
 import { Sale, UserDashboardSummary } from '../../types';
 
 export const SalesScreen: React.FC = () => {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [dashboard, setDashboard] = useState<UserDashboardSummary | null>(null);
@@ -76,7 +78,8 @@ export const SalesScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+    <AmbientBackground variant="leads">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <Header
         title="My Sales"
         subtitle="Individual sales performance & closed deals"
@@ -91,7 +94,7 @@ export const SalesScreen: React.FC = () => {
         <FlatList
           data={sales}
           keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -164,7 +167,7 @@ export const SalesScreen: React.FC = () => {
                   </View>
                   <View>
                     <Text style={styles.dealLeadName}>
-                      {item.leadName || `Lead #${item.leadId}`}
+                      {item.leadName || 'Direct Sale'}
                     </Text>
                     <Text style={styles.dealDate}>
                       Converted on {formatDate(item.convertedAt)}
@@ -193,14 +196,15 @@ export const SalesScreen: React.FC = () => {
           }
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   listContent: {
     padding: spacing.md,

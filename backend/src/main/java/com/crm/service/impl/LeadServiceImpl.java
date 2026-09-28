@@ -6,11 +6,13 @@ import com.crm.dto.request.LeadUpdateRequest;
 import com.crm.dto.response.CallSummaryStats;
 import com.crm.dto.response.LeadDetailResponse;
 import com.crm.dto.response.LeadSummaryResponse;
+import com.crm.exception.BusinessException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.mapper.LeadMapper;
 import com.crm.model.*;
+import java.time.LocalDateTime;
 import com.crm.repository.CallRepository;
 import com.crm.repository.FollowUpRepository;
 import com.crm.repository.LeadAssignmentRepository;
@@ -113,8 +115,37 @@ public class LeadServiceImpl implements LeadService {
         lead.setState(request.getState());
         lead.setSource(request.getSource());
 
-        if (request.getStatus() != null) {
-            lead.setStatus(request.getStatus().toUpperCase());
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String newStatus = request.getStatus().toUpperCase();
+            String oldStatus = lead.getStatus();
+            if (!newStatus.equalsIgnoreCase(oldStatus)) {
+                if ("IN_PROGRESS".equalsIgnoreCase(newStatus)) {
+                    boolean hasAssignment = leadAssignmentRepository.findByLeadIdAndIsActiveTrue(lead.getId()).isPresent();
+                    if (!hasAssignment) {
+                        throw new BusinessException("Assign this lead to a user before changing status to In Progress.");
+                    }
+                } else if ("NEW".equalsIgnoreCase(newStatus)) {
+                    List<LeadAssignment> activeAssignments = leadAssignmentRepository.findByLeadIdOrderByAssignedAtDesc(lead.getId());
+                    for (LeadAssignment a : activeAssignments) {
+                        if (Boolean.TRUE.equals(a.getIsActive())) {
+                            a.setIsActive(false);
+                            a.setUnassignedAt(LocalDateTime.now());
+                            leadAssignmentRepository.save(a);
+                        }
+                    }
+                }
+                // If transitioning away from CONVERTED, remove the sale record so deal value is deducted from sales target/revenue
+                if ("CONVERTED".equalsIgnoreCase(oldStatus) && !"CONVERTED".equalsIgnoreCase(newStatus)) {
+                    salesRepository.findByLeadId(lead.getId()).ifPresent(salesRepository::delete);
+                    if ("CONVERTED".equalsIgnoreCase(lead.getBusinessOutcome())) {
+                        lead.setBusinessOutcome(null);
+                    }
+                }
+
+                lead.setStatus(newStatus);
+                auditService.logAction(currentUserId, "Lead", lead.getId(), "STATUS_CHANGE",
+                        oldStatus, "Status changed from " + oldStatus + " to " + newStatus + (request.getAdditionalInfo() != null ? " (" + request.getAdditionalInfo() + ")" : ""));
+            }
         }
         if (request.getBusinessOutcome() != null) {
             lead.setBusinessOutcome(request.getBusinessOutcome());
@@ -128,6 +159,62 @@ public class LeadServiceImpl implements LeadService {
 
         LeadAssignment activeAssignment = leadAssignmentRepository.findByLeadIdAndIsActiveTrue(updated.getId()).orElse(null);
         return leadMapper.toSummaryResponse(updated, activeAssignment);
+    }
+
+    @Override
+    @Transactional
+    public LeadSummaryResponse updateLeadStatus(Long id, String status, String notes, Long currentUserId, boolean isAdmin) {
+        Lead lead = leadRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Lead not found with id: " + id));
+
+        if (!leadAssignmentService.isUserAllowedToAccessLead(id, currentUserId, isAdmin)) {
+            throw new ForbiddenException("Access denied: You are not authorized to update this lead");
+        }
+
+        String oldStatus = lead.getStatus();
+        if (status != null && !status.isBlank()) {
+            String newStatus = status.toUpperCase();
+            if (!newStatus.equalsIgnoreCase(oldStatus)) {
+                if ("IN_PROGRESS".equalsIgnoreCase(newStatus)) {
+                    boolean hasAssignment = leadAssignmentRepository.findByLeadIdAndIsActiveTrue(lead.getId()).isPresent();
+                    if (!hasAssignment) {
+                        throw new BusinessException("Assign this lead to a user before changing status to In Progress.");
+                    }
+                } else if ("NEW".equalsIgnoreCase(newStatus)) {
+                    if (!isAdmin) {
+                        throw new ForbiddenException("Access denied: Only administrators can reset a lead status to New");
+                    }
+                    List<LeadAssignment> activeAssignments = leadAssignmentRepository.findByLeadIdOrderByAssignedAtDesc(lead.getId());
+                    for (LeadAssignment a : activeAssignments) {
+                        if (Boolean.TRUE.equals(a.getIsActive())) {
+                            a.setIsActive(false);
+                            a.setUnassignedAt(LocalDateTime.now());
+                            leadAssignmentRepository.save(a);
+                        }
+                    }
+                }
+
+                // If transitioning away from CONVERTED, remove the sale record so deal value is deducted from sales target/revenue
+                if ("CONVERTED".equalsIgnoreCase(oldStatus) && !"CONVERTED".equalsIgnoreCase(newStatus)) {
+                    salesRepository.findByLeadId(lead.getId()).ifPresent(salesRepository::delete);
+                    if ("CONVERTED".equalsIgnoreCase(lead.getBusinessOutcome())) {
+                        lead.setBusinessOutcome(null);
+                    }
+                }
+
+                lead.setStatus(newStatus);
+                if (notes != null && !notes.isBlank()) {
+                    lead.setAdditionalInfo(notes);
+                }
+
+                leadRepository.save(lead);
+                auditService.logAction(currentUserId, "Lead", lead.getId(), "STATUS_CHANGE",
+                        oldStatus, "Status changed from " + oldStatus + " to " + newStatus + (notes != null ? " (" + notes + ")" : ""));
+            }
+        }
+
+        LeadAssignment activeAssignment = leadAssignmentRepository.findByLeadIdAndIsActiveTrue(lead.getId()).orElse(null);
+        return leadMapper.toSummaryResponse(lead, activeAssignment);
     }
 
     @Override

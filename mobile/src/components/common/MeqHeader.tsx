@@ -1,234 +1,244 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../theme/colors';
-import { spacing } from '../../theme/spacing';
-import { GradientView } from './GradientView';
+import { useAuth } from '../../context/AuthContext';
 
-export interface MeqHeaderProps {
-  rightElement?: React.ReactNode;
-  onBack?: () => void;
-  showLogo?: boolean;
+interface MeqHeaderProps {
   title?: string;
   subtitle?: string;
-  style?: StyleProp<ViewStyle>;
-  avatarInitial?: string;
-  hasNotification?: boolean;
+  showLogo?: boolean;
+  showAdminBadge?: boolean;
+  onBack?: () => void;
+  rightMode?: 'none' | 'home' | 'settings' | 'custom' | 'date';
+  rightElement?: React.ReactNode;
+  dateText?: string;
   onPressBell?: () => void;
   onPressAvatar?: () => void;
-  onPressSearch?: () => void;
-  onPressFilter?: () => void;
-  rightMode?: 'home' | 'dial' | 'date' | 'custom';
-  dateText?: string;
+  hasUnreadNotifications?: boolean;
+  avatarInitial?: string;
 }
 
 export const MeqHeader: React.FC<MeqHeaderProps> = ({
-  rightElement,
-  onBack,
-  showLogo = true,
   title,
   subtitle,
-  style,
-  avatarInitial = 'K',
-  hasNotification = true,
+  showLogo = true,
+  showAdminBadge,
+  onBack,
+  rightMode = 'home',
+  rightElement,
+  dateText,
   onPressBell,
   onPressAvatar,
-  onPressSearch,
-  onPressFilter,
-  rightMode,
-  dateText,
+  hasUnreadNotifications = false,
+  avatarInitial = 'A',
 }) => {
-  const renderRight = () => {
-    if (rightElement) return rightElement;
-
-    if (rightMode === 'home') {
-      return (
-        <View style={styles.rightGroup}>
-          <TouchableOpacity
-            style={styles.iconCircleBtn}
-            onPress={onPressBell}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="notifications-outline" size={19} color={colors.textPrimary} />
-            {hasNotification && <View style={styles.redDot} />}
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={onPressAvatar} activeOpacity={0.7}>
-            <GradientView colors={colors.avatarGradient} style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{avatarInitial.toUpperCase()}</Text>
-            </GradientView>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    if (rightMode === 'dial') {
-      return (
-        <View style={styles.rightGroup}>
-          <TouchableOpacity
-            style={styles.iconCircleBtn}
-            onPress={onPressSearch}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="search-outline" size={18} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconCircleBtn}
-            onPress={onPressFilter}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="options-outline" size={18} color={colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    if (rightMode === 'date') {
-      return (
-        <View style={styles.datePill}>
-          <Ionicons name="calendar-outline" size={14} color={colors.textPrimary} />
-          <Text style={styles.datePillText}>{dateText || '21 Sept 2026'}</Text>
-        </View>
-      );
-    }
-
-    return null;
-  };
+  const { isAdmin } = useAuth();
+  const shouldShowAdmin = showAdminBadge !== undefined ? showAdminBadge : isAdmin;
 
   return (
-    <View style={[styles.container, style]}>
-      <View style={styles.leftContainer}>
+    <View style={styles.headerContainer}>
+      {/* Left Section: Back button or QMAX Logo */}
+      <View style={styles.leftSection}>
         {onBack ? (
-          <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={onBack}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
+        ) : showLogo ? (
+          <View style={styles.headerLogoContainer}>
+            <Image
+              source={require('../../../assets/qmex-logo.png')}
+              style={styles.headerLogoImage}
+              resizeMode="contain"
+            />
+            {shouldShowAdmin && (
+              <View style={styles.adminBadge}>
+                <LinearGradient
+                  colors={['#7C3AED', '#EC4899']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.adminBadgeGradient}
+                >
+                  <Ionicons name="shield-checkmark" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
+                  <Text style={styles.adminBadgeText}>ADMIN</Text>
+                </LinearGradient>
+              </View>
+            )}
+          </View>
         ) : null}
 
-        {showLogo ? (
-          <View style={styles.brandRow}>
-            {/* Blue circle Q mark */}
-            <View style={styles.logoBadge}>
-              <Text style={styles.logoLetter}>Q</Text>
-            </View>
-            <View style={styles.logoTextCol}>
-              <Text style={styles.logoMeq}>QMEX</Text>
-              <Text style={styles.logoCrm}>CRM</Text>
-            </View>
-          </View>
-        ) : (
+        {/* Center / Left Title */}
+        {title ? (
           <View style={styles.titleCol}>
-            {title && <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>}
-            {subtitle && <Text style={styles.screenSubtitle} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>}
+            <Text style={styles.titleText} numberOfLines={1}>
+              {title}
+            </Text>
+            {subtitle ? (
+              <Text style={styles.subtitleText} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : null}
           </View>
-        )}
+        ) : null}
       </View>
 
-      <View style={styles.rightContainer}>{renderRight()}</View>
+      {/* Right Section */}
+      <View style={styles.rightSection}>
+        {rightElement ? (
+          rightElement
+        ) : rightMode === 'date' && dateText ? (
+          <View style={styles.dateBadge}>
+            <Ionicons name="calendar-outline" size={13} color={colors.primaryElectric} />
+            <Text style={styles.dateBadgeText}>{dateText}</Text>
+          </View>
+        ) : rightMode === 'home' ? (
+          <View style={styles.actionGroup}>
+            {/* Notification Bell with Badge */}
+            {onPressBell && (
+              <TouchableOpacity
+                style={styles.iconCircleButton}
+                activeOpacity={0.75}
+                onPress={onPressBell}
+              >
+                <Ionicons name="notifications-outline" size={19} color={colors.textPrimary} />
+                {hasUnreadNotifications && <View style={styles.notificationDot} />}
+              </TouchableOpacity>
+            )}
+
+            {/* User Avatar Circle */}
+            {onPressAvatar && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={onPressAvatar}
+                style={styles.avatarButton}
+              >
+                <LinearGradient
+                  colors={colors.avatarGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarGradient}
+                >
+                  <Text style={styles.avatarText}>{avatarInitial}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.background,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: 'transparent',
+    zIndex: 10,
   },
-  leftContainer: {
-    flex: 1,
+  leftSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginRight: 8,
+    flex: 1,
+    gap: 12,
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: 4,
-  },
-  brandRow: {
+  headerLogoContainer: {
+    height: 38,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  logoBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#1E40AF',
+  headerLogoImage: {
+    width: 90,
+    height: 36,
+  },
+  adminBadge: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  adminBadgeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  adminBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
+  },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#3B82F6',
-  },
-  logoLetter: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-    fontFamily: 'System',
-  },
-  logoTextCol: {
-    justifyContent: 'center',
-  },
-  logoMeq: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#111827',
-    letterSpacing: 0.5,
-    lineHeight: 18,
-  },
-  logoCrm: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#2563EB',
-    letterSpacing: 1.5,
-    lineHeight: 10,
+    shadowColor: '#1E1B4B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   titleCol: {
     flex: 1,
-    justifyContent: 'center',
   },
-  screenTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+  titleText: {
+    fontSize: 18,
+    fontWeight: '800',
     color: colors.textPrimary,
+    letterSpacing: -0.4,
   },
-  screenSubtitle: {
-    fontSize: 11,
+  subtitleText: {
+    fontSize: 12,
     color: colors.textSecondary,
     marginTop: 1,
+    fontWeight: '500',
   },
-  rightContainer: {
-    flexShrink: 0,
+  rightSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
   },
-  rightGroup: {
+  actionGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 10,
   },
-  iconCircleBtn: {
+  iconCircleButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
     position: 'relative',
+    shadowColor: '#1E1B4B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  redDot: {
+  notificationDot: {
     position: 'absolute',
     top: 8,
     right: 8,
@@ -239,37 +249,46 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
   },
-  avatarCircle: {
+  avatarButton: {
+    borderRadius: 19,
+    overflow: 'hidden',
+  },
+  avatarGradient: {
     width: 38,
     height: 38,
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowColor: colors.primaryViolet,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
     elevation: 3,
   },
   avatarText: {
     color: '#FFFFFF',
+    fontSize: 14.5,
     fontWeight: '800',
-    fontSize: 15,
   },
-  datePill: {
+  dateBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: colors.surface,
-    borderRadius: spacing.borderRadius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  datePillText: {
+  dateBadgeText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    fontWeight: '700',
+    color: colors.primaryElectric,
   },
 });

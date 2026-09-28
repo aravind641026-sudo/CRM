@@ -18,6 +18,7 @@ import { IconTile } from '../../components/common/IconTile';
 import { Card } from '../../components/common/Card';
 import { LoadingState } from '../../components/common/LoadingState';
 import { EmptyState } from '../../components/common/EmptyState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { notificationApi } from '../../api/notificationApi';
 import { AdminNotification } from '../../types';
 
@@ -172,7 +173,8 @@ export const UserNotificationsScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+    <AmbientBackground variant="home">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <MeqHeader
         showLogo={false}
         title="Notifications"
@@ -216,14 +218,15 @@ export const UserNotificationsScreen: React.FC = () => {
           }
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   markReadBtn: {
     paddingHorizontal: 10,

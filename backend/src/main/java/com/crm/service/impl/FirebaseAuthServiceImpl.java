@@ -24,7 +24,7 @@ public class FirebaseAuthServiceImpl implements FirebaseAuthService {
 
     private static final Logger logger = LoggerFactory.getLogger(FirebaseAuthServiceImpl.class);
 
-    @Value("${firebase.web-api-key:AIzaSyBtqnhkIqRSdZ_pLA7sdWB9bKy5WQBVvGg}")
+    @Value("${firebase.web-api-key:AIzaSyBFXGeQ0OytxoSKwgj8o1gdf7m7O0VwNEk}")
     private String webApiKey;
 
     private final com.crm.config.FirebaseConfig firebaseConfig;

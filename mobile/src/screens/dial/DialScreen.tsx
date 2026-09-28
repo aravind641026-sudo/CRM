@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,67 +11,106 @@ import {
   AppState,
   AppStateStatus,
   TextInput,
-  Platform,
-  PermissionsAndroid,
   Modal,
   Animated,
+  Easing,
+  Image,
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../theme/colors';
-import { spacing } from '../../theme/spacing';
-import { MeqHeader } from '../../components/common/MeqHeader';
-import { GradientView } from '../../components/common/GradientView';
 import { DialPad } from '../../components/dial/DialPad';
-import { StatusBadge } from '../../components/common/StatusBadge';
+import { CallWrapUpModal } from '../../components/dial/CallWrapUpModal';
 import { LoadingState } from '../../components/common/LoadingState';
 import { EmptyState } from '../../components/common/EmptyState';
 import { callApi } from '../../api/callApi';
 import { usersApi } from '../../api/usersApi';
-import { Call, MainTabParamList, RootStackParamList } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { Call, User, RootStackParamList } from '../../types';
+import { GroupedCallLog, groupCallsByPhoneNumber, isCallMissed } from '../../utils/callGrouping';
 
-type CallTabFilter = 'ALL' | 'OUTBOUND' | 'INBOUND' | 'MISSED';
+// Deterministic pastel avatar palette matching reference image
+interface PastelStyle {
+  bg: string;
+  text: string;
+  border: string;
+}
 
-const AVATAR_COLORS = [
-  '#6366F1', // indigo
-  '#3B82F6', // blue
-  '#EF4444', // red
-  '#10B981', // green
-  '#F59E0B', // orange
-  '#8B5CF6', // purple
-  '#EC4899', // pink
+const PASTEL_PALETTE: PastelStyle[] = [
+  { bg: '#EDE9FE', text: '#7C3AED', border: '#DDD6FE' },
+  { bg: '#E0F2FE', text: '#0284C7', border: '#BAE6FD' },
+  { bg: '#FFE4E6', text: '#E11D48', border: '#FECDD3' },
+  { bg: '#FEF9C3', text: '#CA8A04', border: '#FEF08A' },
+  { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0' },
+  { bg: '#FCE7F3', text: '#DB2777', border: '#FBCFE8' },
+  { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' },
+  { bg: '#CFFAFE', text: '#0891B2', border: '#A5F3FC' },
 ];
 
-const getAvatarColor = (str: string) => {
+const getPastelAvatarStyle = (text: string): PastelStyle => {
+  if (!text) return PASTEL_PALETTE[0];
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const idx = Math.abs(hash) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[idx];
+  const index = Math.abs(hash) % PASTEL_PALETTE.length;
+  return PASTEL_PALETTE[index];
 };
+
+type DateRangeOption = 'ALL' | 'TODAY' | 'TOMORROW' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
 export const DialScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute<RouteProp<MainTabParamList, 'Dial'>>();
+  const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { isAdmin } = useAuth();
 
   const [calls, setCalls] = useState<Call[]>([]);
-  const [userMap, setUserMap] = useState<Record<number, string>>({});
+  const [usersList, setUsersList] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [callTabFilter, setCallTabFilter] = useState<CallTabFilter>('ALL');
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const [isDefaultDialer, setIsDefaultDialer] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  // Filter System States
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [dateOption, setDateOption] = useState<DateRangeOption>('ALL');
+  const [customFromDate, setCustomFromDate] = useState<string>(''); // YYYY-MM-DD
+  const [customToDate, setCustomToDate] = useState<string>(''); // YYYY-MM-DD
+  const [selectedStatus, setSelectedStatus] = useState<string>('ALL'); // 'ALL' | 'PROSPECT' | 'CONNECTED' | 'JUNK' | 'MISSED'
+  const [selectedUser, setSelectedUser] = useState<{ id?: number; name: string } | null>(null);
+  const [showUserDropdown, setShowUserDropdown] = useState<boolean>(false);
 
   // Dial pad modal visibility
   const [dialPadModalVisible, setDialPadModalVisible] = useState(false);
 
-  // Pulsing animation for LIVE SYNC ACTIVE
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  // Wrap up modal state
+  const [wrapUpModalVisible, setWrapUpModalVisible] = useState(false);
+  const [wrapUpCallData, setWrapUpCallData] = useState<{
+    telephonyCallId: string;
+    leadId?: number;
+    leadName?: string;
+    phoneNumber: string;
+    durationSeconds: number;
+  } | null>(null);
+
+  // Animation values for subtle live glowing background
+  const auraTranslate1 = useRef(new Animated.Value(0)).current;
+  const auraTranslate2 = useRef(new Animated.Value(0)).current;
+  const fabGlowAnim = useRef(new Animated.Value(1)).current;
+
+  // Search Bar Hide on Scroll Down / Show on Scroll Up
+  const searchBarAnim = useRef(new Animated.Value(0)).current; // 0 = visible, 1 = hidden
+  const lastScrollY = useRef(0);
+  const isSearchBarHidden = useRef(false);
 
   const activeCallRef = useRef<{
     telephonyCallId: string;
@@ -83,100 +122,71 @@ export const DialScreen: React.FC = () => {
 
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
-  // Pulse animation loop
+  // Setup subtle continuous background animations
   useEffect(() => {
-    const loop = Animated.loop(
+    const aura1Loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 0.25,
-          duration: 750,
+        Animated.timing(auraTranslate1, {
+          toValue: 15,
+          duration: 10000,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 750,
+        Animated.timing(auraTranslate1, {
+          toValue: -15,
+          duration: 10000,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ])
     );
-    loop.start();
-    return () => loop.stop();
-  }, [pulseAnim]);
 
-  // Check Android permissions on mount
-  useEffect(() => {
-    checkPermissions();
-  }, []);
+    const aura2Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(auraTranslate2, {
+          toValue: -20,
+          duration: 12000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(auraTranslate2, {
+          toValue: 20,
+          duration: 12000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
 
-  const checkPermissions = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const hasCallLog = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_CALL_LOG);
-        const hasPhoneState = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE);
-        setPermissionGranted(hasCallLog && hasPhoneState);
-      } catch {
-        setPermissionGranted(false);
-      }
-    } else {
-      setPermissionGranted(true);
-    }
-  };
+    const fabLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fabGlowAnim, {
+          toValue: 1.05,
+          duration: 2200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fabGlowAnim, {
+          toValue: 0.98,
+          duration: 2200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
 
-  const handleRequestPermissions = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-          PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
-          PermissionsAndroid.PERMISSIONS.CALL_PHONE,
-        ]);
-        const allGranted =
-          granted[PermissionsAndroid.PERMISSIONS.READ_CALL_LOG] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted[PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE] === PermissionsAndroid.RESULTS.GRANTED;
-        setPermissionGranted(allGranted);
-        if (allGranted) {
-          Alert.alert('Permissions Granted', 'Device call history and telephony sync are now active.');
-          fetchCalls(true);
-        } else {
-          Alert.alert(
-            'Permissions Needed',
-            'Please enable Phone & Call Log permissions in Settings to synchronize device calls.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() },
-            ]
-          );
-        }
-      } catch (err) {
-        console.warn('Permission request error:', err);
-      }
-    } else {
-      Alert.alert('Device Call Sync', 'Device call synchronization is active on this system.');
-    }
-  };
+    aura1Loop.start();
+    aura2Loop.start();
+    fabLoop.start();
 
-  const handleSetDefaultDialer = () => {
-    if (Platform.OS === 'android') {
-      Alert.alert(
-        'Set Default Dialer',
-        'To enable incoming call popup and full CRM call tracking, set this app as your default phone dialer in Android settings.',
-        [
-          { text: 'Later', style: 'cancel' },
-          {
-            text: 'Configure',
-            onPress: () => {
-              setIsDefaultDialer(true);
-              Linking.openSettings();
-            },
-          },
-        ]
-      );
-    } else {
-      Alert.alert('Default Dialer', 'This device does not require default dialer configuration.');
-    }
-  };
+    return () => {
+      aura1Loop.stop();
+      aura2Loop.stop();
+      fabLoop.stop();
+    };
+  }, [auraTranslate1, auraTranslate2, fabGlowAnim]);
 
-  // AppState listener for in-call return detection: Automatically wraps call without post-call popup
+  // AppState listener for in-call return detection -> opens wrap-up modal
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (
@@ -188,18 +198,14 @@ export const DialScreen: React.FC = () => {
         const callData = activeCallRef.current;
         activeCallRef.current = null;
 
-        // Auto-persist call to Spring Boot backend - status calculated automatically
-        callApi.sendCallEvent({
-          eventType: 'CALL_ENDED',
+        setWrapUpCallData({
           telephonyCallId: callData.telephonyCallId,
           leadId: callData.leadId,
-          customerPhone: callData.phoneNumber,
+          leadName: callData.leadName,
+          phoneNumber: callData.phoneNumber,
           durationSeconds: elapsed,
-          technicalStatus: elapsed > 0 ? 'CONNECTED' : 'MISSED',
-        }).catch((err) => console.warn('Auto call wrap-up error:', err))
-          .finally(() => {
-            fetchCalls(true);
-          });
+        });
+        setWrapUpModalVisible(true);
       }
       appState.current = nextAppState;
     });
@@ -213,16 +219,15 @@ export const DialScreen: React.FC = () => {
     if (!isRefresh) setLoading(true);
     try {
       const [res, activeUsers] = await Promise.all([
-        callApi.getCalls({ size: 50 }),
+        callApi.getCalls({
+          userId: isAdmin && selectedUser ? selectedUser.id : undefined,
+          size: 150,
+        }),
         usersApi.getActiveUsers().catch(() => []),
       ]);
       setCalls(res.content || []);
       if (activeUsers && activeUsers.length > 0) {
-        const map: Record<number, string> = {};
-        activeUsers.forEach((u) => {
-          map[u.id] = u.name;
-        });
-        setUserMap(map);
+        setUsersList(activeUsers);
       }
     } catch (err: any) {
       console.warn('Failed to load calls:', err);
@@ -230,7 +235,44 @@ export const DialScreen: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isAdmin, selectedUser]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sf = route.params?.statusFilter;
+      const dp = route.params?.datePreset;
+      const cs = route.params?.customStartDate;
+      const ce = route.params?.customEndDate;
+      const fu = route.params?.filterUserId;
+
+      if (sf !== undefined) {
+        setSelectedStatus(sf);
+      }
+      if (dp !== undefined) {
+        setDateOption(dp);
+      }
+      if (cs !== undefined) {
+        setCustomFromDate(cs);
+      }
+      if (ce !== undefined) {
+        setCustomToDate(ce);
+      }
+      if (fu !== undefined && usersList.length > 0) {
+        const found = usersList.find((u) => u.id === fu);
+        if (found) setSelectedUser({ id: found.id, name: found.name });
+      }
+
+      fetchCalls(true);
+    }, [
+      route.params?.statusFilter,
+      route.params?.datePreset,
+      route.params?.customStartDate,
+      route.params?.customEndDate,
+      route.params?.filterUserId,
+      usersList,
+      fetchCalls,
+    ])
+  );
 
   useEffect(() => {
     fetchCalls();
@@ -258,7 +300,6 @@ export const DialScreen: React.FC = () => {
       startTime: Date.now(),
     };
 
-    // Dispatch CALL_INITIATED lifecycle event to Spring Boot
     callApi.sendCallEvent({
       eventType: 'CALL_INITIATED',
       telephonyCallId,
@@ -277,680 +318,1637 @@ export const DialScreen: React.FC = () => {
     });
   };
 
-  const formatCallDate = (dateStr?: string) => {
+  // Format Date to match reference: "26 Sep, 12:08 PM"
+  const formatCallDateTime = (dateStr?: string) => {
     if (!dateStr) return '—';
     try {
       const d = new Date(dateStr);
-      return d.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      if (isNaN(d.getTime())) return dateStr;
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const day = d.getDate();
+      const month = months[d.getMonth()];
+      const hours = d.getHours();
+      const minutes = d.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const h12 = hours % 12 || 12;
+      const m = minutes.toString().padStart(2, '0');
+      return `${day} ${month}, ${h12}:${m} ${ampm}`;
     } catch {
       return dateStr;
     }
   };
 
-  // Filtered calls by search & tab chips (ALL, OUTBOUND, INBOUND, MISSED)
-  const filteredCalls = calls.filter((c) => {
-    const isMissed =
-      c.callStatus === 'NOT_ATTENDED' ||
-      c.callStatus === 'MISSED' ||
-      c.callStatus === 'NO_ANSWER' ||
-      c.callStatus === 'FAILED';
-    const isIncoming =
-      c.callDirection === 'INBOUND' || c.callStatus === 'INCOMING';
+  // Check if any filter is active (to display indicator on Filter icon)
+  const hasActiveFilters = useMemo(() => {
+    const hasDate = dateOption !== 'ALL';
+    const hasStatus = selectedStatus !== 'ALL';
+    const hasUser = isAdmin && selectedUser !== null;
+    return hasDate || hasStatus || hasUser;
+  }, [dateOption, selectedStatus, selectedUser, isAdmin]);
 
-    if (callTabFilter === 'OUTBOUND' && (isIncoming || isMissed)) return false;
-    if (callTabFilter === 'INBOUND' && (!isIncoming || isMissed)) return false;
-    if (callTabFilter === 'MISSED' && !isMissed) return false;
+  const resetAllFilters = () => {
+    setDateOption('ALL');
+    setCustomFromDate('');
+    setCustomToDate('');
+    setSelectedStatus('ALL');
+    setSelectedUser(null);
+    setShowUserDropdown(false);
+    setFilterModalVisible(false);
+  };
 
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    const name = (c.leadName || '').toLowerCase();
-    const phone = (c.leadPhone || '').toLowerCase();
-    return name.includes(q) || phone.includes(q);
+  // Filtered raw individual calls (Used for grouping and calculations)
+  const filteredCalls = useMemo(() => {
+    return calls.filter((c) => {
+      const rawStatus = (c.callStatus || '').toUpperCase();
+      const duration = c.durationSeconds || 0;
+      const isMissed = isCallMissed(c) || rawStatus === 'MISSED' || c.isConnected === false;
+
+      // Classify into strictly 4 statuses matching AnalyticsScreen
+      let callComputedStatus = 'CONNECTED';
+      if (isMissed) {
+        callComputedStatus = 'MISSED';
+      } else if (rawStatus === 'PROSPECT' || duration > 300) {
+        callComputedStatus = 'PROSPECT';
+      } else if (rawStatus === 'JUNK' || duration < 30) {
+        callComputedStatus = 'JUNK';
+      } else {
+        callComputedStatus = 'CONNECTED';
+      }
+
+      // 1. Call Status Filter
+      if (selectedStatus !== 'ALL' && callComputedStatus !== selectedStatus) {
+        return false;
+      }
+
+      // 2. Call User Filter (Admin only)
+      if (isAdmin && selectedUser?.id != null && c.userId !== selectedUser.id) {
+        return false;
+      }
+
+      // 3. Date Range Filter
+      if (dateOption !== 'ALL') {
+        const callTime = new Date(c.startTime || c.startedAt || c.createdAt || 0);
+        const callYear = callTime.getFullYear();
+        const callMonth = callTime.getMonth();
+        const callDateNum = callTime.getDate();
+
+        const now = new Date();
+        const todayYear = now.getFullYear();
+        const todayMonth = now.getMonth();
+        const todayDateNum = now.getDate();
+
+        if (dateOption === 'TODAY') {
+          if (callYear !== todayYear || callMonth !== todayMonth || callDateNum !== todayDateNum) {
+            return false;
+          }
+        } else if (dateOption === 'TOMORROW') {
+          const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          if (
+            callYear !== tomorrow.getFullYear() ||
+            callMonth !== tomorrow.getMonth() ||
+            callDateNum !== tomorrow.getDate()
+          ) {
+            return false;
+          }
+        } else if (dateOption === 'WEEK') {
+          const day = now.getDay();
+          const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+          const startOfWeek = new Date(now.getFullYear(), now.getMonth(), diff, 0, 0, 0);
+          if (callTime < startOfWeek) return false;
+        } else if (dateOption === 'MONTH') {
+          const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+          if (callTime < startOfMonth) return false;
+        } else if (dateOption === 'CUSTOM') {
+          const callTimestamp = callTime.getTime();
+          if (customFromDate.trim()) {
+            const fromTime = new Date(`${customFromDate.trim().slice(0, 10)}T00:00:00`).getTime();
+            if (!isNaN(fromTime) && callTimestamp < fromTime) return false;
+          }
+          if (customToDate.trim()) {
+            const toTime = new Date(`${customToDate.trim().slice(0, 10)}T23:59:59`).getTime();
+            if (!isNaN(toTime) && callTimestamp > toTime) return false;
+          }
+        }
+      }
+
+      // 4. Search Query
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase().trim();
+      const name = (c.leadName || '').toLowerCase();
+      const phone = (c.leadPhone || (c as any).phoneNumber || '').toLowerCase();
+      return name.includes(q) || phone.includes(q);
+    });
+  }, [calls, dateOption, customFromDate, customToDate, selectedStatus, selectedUser, isAdmin, searchQuery]);
+
+  // Grouped calls for UI display (1 clean row per normalized phone number)
+  const groupedCalls = useMemo(() => {
+    return groupCallsByPhoneNumber(filteredCalls);
+  }, [filteredCalls]);
+
+  // Scroll listener for Search Bar Hide on Scroll Down / Show on Scroll Up
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const diff = currentY - lastScrollY.current;
+
+    if (currentY <= 5) {
+      if (isSearchBarHidden.current) {
+        isSearchBarHidden.current = false;
+        Animated.timing(searchBarAnim, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: false,
+        }).start();
+      }
+    } else if (diff > 12 && currentY > 30) {
+      if (!isSearchBarHidden.current) {
+        isSearchBarHidden.current = true;
+        Animated.timing(searchBarAnim, {
+          toValue: 1,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }).start();
+      }
+    } else if (diff < -12) {
+      if (isSearchBarHidden.current) {
+        isSearchBarHidden.current = false;
+        Animated.timing(searchBarAnim, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: false,
+        }).start();
+      }
+    }
+    lastScrollY.current = currentY;
+  };
+
+  const searchBarHeight = searchBarAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [56, 0],
+  });
+  const searchBarOpacity = searchBarAnim.interpolate({
+    inputRange: [0, 0.6, 1],
+    outputRange: [1, 0.2, 0],
+  });
+  const searchBarTranslateY = searchBarAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -25],
   });
 
-  const renderCallItem = ({ item }: { item: Call }) => {
-    const isMissed =
-      item.callStatus === 'NOT_ATTENDED' ||
-      item.callStatus === 'MISSED' ||
-      item.callStatus === 'NO_ANSWER' ||
-      item.callStatus === 'FAILED';
-    const isIncoming =
-      item.callDirection === 'INBOUND' || item.callStatus === 'INCOMING';
+  const renderGroupedCallItem = ({ item }: { item: GroupedCallLog }) => {
+    const latestCall = item.latestCall;
+    const missed = item.hasMissed || isCallMissed(latestCall);
+    const isIncoming = latestCall.callDirection === 'INBOUND' || latestCall.callStatus === 'INCOMING';
 
-    const directionIcon = isIncoming ? 'arrow-down-outline' : isMissed ? 'close-outline' : 'arrow-up-outline';
-    const directionColor = isIncoming ? colors.info : isMissed ? colors.danger : colors.success;
-    const directionLabel = isIncoming ? 'Inbound' : isMissed ? 'Missed' : 'Outbound';
+    let directionIcon: keyof typeof Ionicons.glyphMap = 'arrow-up';
+    let directionColor = '#2563EB';
+    let directionLabel = 'Outbound';
 
-    const displayName = item.leadName || (item.leadId ? `CRM Lead #${item.leadId}` : (item.leadPhone || 'Unknown'));
-    const displayPhone = item.leadPhone || '9876543210';
-    const timestamp = formatCallDate(item.startTime || item.startedAt || item.createdAt);
-    const avatarColor = getAvatarColor(displayName);
-    const initial = displayName.charAt(0).toUpperCase();
-
-    // Map status to badge style
-    let statusLabel = 'INITIATED';
-    let statusBg = colors.pastelPurple;
-    let statusColor = colors.pastelPurpleText;
-    if (item.callStatus === 'CONNECTED') {
-      statusLabel = 'CONNECTED';
-      statusBg = colors.pastelGreen;
-      statusColor = colors.pastelGreenText;
-    } else if (isMissed) {
-      statusLabel = 'MISSED';
-      statusBg = colors.pastelRed;
-      statusColor = colors.pastelRedText;
-    } else if (item.durationSeconds != null && item.durationSeconds < 30) {
-      statusLabel = 'JUNK (<30s)';
-      statusBg = colors.pastelRed;
-      statusColor = colors.pastelRedText;
+    if (missed) {
+      directionIcon = 'close-circle';
+      directionColor = '#DC2626';
+      directionLabel = 'Missed';
+    } else if (isIncoming) {
+      directionIcon = 'arrow-down';
+      directionColor = '#0284C7';
+      directionLabel = 'Inbound';
     }
 
-    const tagLabel = item.leadId ? 'CRM Lead' : 'Prospect';
-    const callerName =
-      item.userName ||
-      item.user?.name ||
-      (item.userId ? userMap[item.userId] : undefined) ||
-      'Admin';
+    const displayName = item.leadName || item.phoneNumber || 'Caller';
+    const displayPhone = item.phoneNumber;
+    const timestamp = formatCallDateTime(item.lastCallDate);
+
+    const initialLetter = displayName ? displayName.charAt(0).toUpperCase() : 'C';
+    const avatarPastel = getPastelAvatarStyle(displayName + displayPhone);
+
+    // Strictly 4 Call Statuses from latest call: PROSPECT, CONNECTED, JUNK, MISSED
+    let statusLabel = 'CONNECTED';
+    let statusBg = '#DCFCE7';
+    let statusColor = '#16A34A';
+
+    const rawStatus = (latestCall.callStatus || '').toUpperCase();
+    const duration = latestCall.durationSeconds || 0;
+
+    if (missed || rawStatus === 'MISSED' || latestCall.isConnected === false) {
+      statusLabel = 'MISSED';
+      statusBg = '#FEE2E2';
+      statusColor = '#EF4444';
+    } else if (rawStatus === 'PROSPECT' || duration > 300) {
+      statusLabel = 'PROSPECT';
+      statusBg = '#EDE9FE';
+      statusColor = '#7C3AED';
+    } else if (rawStatus === 'JUNK' || duration < 30) {
+      statusLabel = 'JUNK';
+      statusBg = '#FFEDD5';
+      statusColor = '#EA580C';
+    } else {
+      statusLabel = 'CONNECTED';
+      statusBg = '#DCFCE7';
+      statusColor = '#16A34A';
+    }
+
+    const hasCrmBadge = item.leadId != null || item.leadName != null;
+    const callCountText = item.totalCalls > 1 ? `${item.totalCalls} calls` : null;
 
     return (
-      <View style={styles.callCard}>
-        <TouchableOpacity
-          style={styles.cardHeaderRow}
-          activeOpacity={0.7}
-          onPress={() => {
-            if (item.leadId) {
-              navigation.navigate('LeadDetails', { leadId: item.leadId, leadName: item.leadName });
-            }
-          }}
+      <TouchableOpacity
+        key={item.id}
+        style={styles.callRow}
+        activeOpacity={0.7}
+        onPress={() => {
+          navigation.navigate('CallHistoryDetail', {
+            callId: latestCall.id,
+            phoneNumber: displayPhone,
+            leadId: item.leadId,
+            leadName: item.leadName,
+            groupedLog: item,
+            call: latestCall,
+          });
+        }}
+      >
+        {/* Pastel Avatar */}
+        <View
+          style={[
+            styles.avatarCircle,
+            { backgroundColor: avatarPastel.bg, borderColor: avatarPastel.border },
+          ]}
         >
-          {/* Avatar initial circle */}
-          <View style={[styles.avatarCircle, { backgroundColor: avatarColor }]}>
-            <Text style={styles.avatarInitial}>{initial}</Text>
-          </View>
+          <Text style={[styles.avatarInitial, { color: avatarPastel.text }]}>
+            {initialLetter}
+          </Text>
+        </View>
 
-          {/* Contact Details */}
-          <View style={styles.contactDetails}>
-            <Text style={styles.contactName} numberOfLines={1}>
+        {/* Center Info Column */}
+        <View style={styles.callInfoColumn}>
+          <View style={styles.nameRow}>
+            <Text style={styles.callerName} numberOfLines={1}>
               {displayName}
             </Text>
-            <Text style={styles.contactPhone}>{displayPhone}</Text>
-            <View style={styles.directionTimeRow}>
-              <Ionicons name={directionIcon as any} size={13} color={directionColor} />
-              <Text style={styles.directionTimeText}>
-                {directionLabel} · {timestamp}
-              </Text>
-            </View>
+            {hasCrmBadge && (
+              <View style={styles.crmPill}>
+                <Text style={styles.crmPillText}>CRM</Text>
+              </View>
+            )}
           </View>
 
-          {/* Right Column: Status Badge, Green Call Button, 3-dots */}
-          <View style={styles.rightActionsCol}>
-            <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-              <Text style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
-            </View>
+          <Text style={styles.callerPhone} numberOfLines={1}>
+            {displayPhone}
+          </Text>
 
-            <View style={styles.callBtnAndMenu}>
-              <TouchableOpacity
-                style={styles.roundCallBtn}
-                activeOpacity={0.8}
-                onPress={() => handleStartCall(displayPhone, { id: item.leadId, name: item.leadName })}
-              >
-                <Ionicons name="call" size={15} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Bottom Details: Tag chip & Called By line */}
-        <View style={styles.tagChipRow}>
-          <View style={styles.tagChip}>
-            <Ionicons name="link-outline" size={10} color={colors.pastelGreenText} />
-            <Text style={styles.tagChipText}>{tagLabel}</Text>
-          </View>
-
-          <View style={styles.calledByContainer}>
-            <Ionicons name="person-circle-outline" size={13} color={colors.textSecondary} />
-            <Text style={styles.calledByText}>
-              Called by:{' '}
-              <Text style={styles.calledByName}>{callerName}</Text>
-            </Text>
+          <View style={styles.metaRow}>
+            {callCountText ? (
+              <>
+                <View style={styles.countBadgePill}>
+                  <Text style={styles.countBadgeText}>{callCountText}</Text>
+                </View>
+                <Text style={styles.metaDot}>•</Text>
+                <Text style={styles.metaTimestamp}>Last call {timestamp}</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name={directionIcon} size={13} color={directionColor} style={styles.directionIcon} />
+                <Text style={[styles.directionText, { color: directionColor }]}>{directionLabel}</Text>
+                <Text style={styles.metaDot}>•</Text>
+                <Text style={styles.metaTimestamp}>{timestamp}</Text>
+              </>
+            )}
           </View>
         </View>
-      </View>
+
+        {/* Right Side: Status Badge + Direct Call Action Button */}
+        <View style={styles.rightActionColumn}>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <Text style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.dialActionButton}
+            activeOpacity={0.8}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleStartCall(displayPhone, { id: item.leadId, name: item.leadName });
+            }}
+          >
+            <Ionicons name="call" size={17} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      {/* MEQ Header */}
-      <MeqHeader />
-
-      {/* Filter Chips: All / Outbound / Inbound / Missed */}
-      <View style={styles.chipsRow}>
-        {(['ALL', 'OUTBOUND', 'INBOUND', 'MISSED'] as const).map((tab) => {
-          const isActive = callTabFilter === tab;
-          const label = tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase();
-          return (
-            <TouchableOpacity
-              key={tab}
-              onPress={() => setCallTabFilter(tab)}
-              activeOpacity={0.8}
-              style={styles.chipBtn}
-            >
-              {isActive ? (
-                <GradientView colors={colors.primaryGradient} style={styles.chipActive}>
-                  <Text style={styles.chipTextActive}>{label}</Text>
-                </GradientView>
-              ) : (
-                <View style={styles.chipInactive}>
-                  <Text style={styles.chipTextInactive}>{label}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Search Input Bar */}
-      <View style={styles.topSearchBar}>
-        <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-        <TextInput
-          style={styles.topSearchInput}
-          placeholder="Search number or name..."
-          placeholderTextColor={colors.textMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+    <View style={styles.screenRoot}>
+      {/* 1. SOFT LAVENDER / PASTEL GRADIENT BACKGROUND */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <LinearGradient
+          colors={['#F9FAFE', '#F3F4FD', '#F6F3FE', '#FFFFFF']}
+          locations={[0, 0.35, 0.7, 1]}
+          style={StyleSheet.absoluteFill}
         />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
-            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-          </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Live Sync Status Banner */}
-      <View style={styles.syncStatusContainer}>
-        <Text style={styles.syncStatusSubtitle}>Synced from device</Text>
-        <View style={styles.liveSyncBadge}>
-          <Animated.View style={[styles.greenDot, { opacity: pulseAnim }]} />
-          <Text style={styles.liveSyncText}>LIVE SYNC ACTIVE</Text>
-        </View>
-      </View>
-
-      {/* Set Default Dialer banner if needed */}
-      <View style={styles.actionCardsContainer}>
-        <TouchableOpacity
-          style={styles.defaultDialerCard}
-          onPress={handleSetDefaultDialer}
-          activeOpacity={0.8}
+        <Animated.View
+          style={[
+            styles.bgAuraPurpleTop,
+            {
+              transform: [
+                { translateX: auraTranslate1 },
+                { translateY: auraTranslate2 },
+              ],
+            },
+          ]}
         >
-          <View style={styles.defaultDialerIconCircle}>
-            <Ionicons name="call" size={16} color={colors.primary} />
-          </View>
-          <View style={styles.defaultDialerInfo}>
-            <Text style={styles.defaultDialerTitle}>Set as Default Dialer</Text>
-            <Text style={styles.defaultDialerSub}>
-              Enjoy full call control and professional CRM features.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-        </TouchableOpacity>
+          <LinearGradient
+            colors={['rgba(216, 180, 254, 0.40)', 'rgba(244, 114, 182, 0.22)', 'transparent']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.auraFill}
+          />
+        </Animated.View>
 
-        {!permissionGranted && (
-          <TouchableOpacity
-            style={styles.grantPermissionsCard}
-            onPress={handleRequestPermissions}
-            activeOpacity={0.8}
-          >
-            <View style={styles.permissionsIconCircle}>
-              <Ionicons name="shield-checkmark" size={16} color={colors.warning} />
-            </View>
-            <View style={styles.grantPermissionsInfo}>
-              <Text style={styles.grantPermissionsTitle}>Grant Permissions</Text>
-              <Text style={styles.grantPermissionsSub}>
-                Allow call logs to automatically map customer calls.
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.warning} />
-          </TouchableOpacity>
-        )}
+        <Animated.View
+          style={[
+            styles.bgAuraPurpleMid,
+            {
+              transform: [
+                { translateX: auraTranslate2 },
+                { translateY: auraTranslate1 },
+              ],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={['rgba(192, 132, 252, 0.28)', 'rgba(232, 121, 249, 0.16)', 'transparent']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.auraFill}
+          />
+        </Animated.View>
+
+        <Animated.View
+          style={[
+            styles.bgAuraSkyBottom,
+            {
+              transform: [{ translateX: auraTranslate1 }],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={['rgba(56, 189, 248, 0.20)', 'rgba(99, 102, 241, 0.12)', 'transparent']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.auraFill}
+          />
+        </Animated.View>
       </View>
 
-      {/* Device Call History List */}
-      <View style={styles.listContainer}>
-        {loading && !refreshing ? (
-          <LoadingState message="Syncing device call logs..." />
-        ) : filteredCalls.length === 0 ? (
-          <EmptyState
-            icon="call-outline"
-            title="No Calls Recorded"
-            message={
-              searchQuery
-                ? `No calls matching "${searchQuery}".`
-                : 'Device call history will appear here automatically.'
-            }
+      {/* 2. FOREGROUND CONTENT */}
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
+        {/* Top Header Bar with QMEX Logo & Optional Admin Badge */}
+        <View style={styles.topHeaderBar}>
+          <Image
+            source={require('../../../assets/qmex-logo.png')}
+            style={styles.headerLogoImage}
+            resizeMode="contain"
           />
-        ) : (
-          <FlatList
-            data={filteredCalls}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderCallItem}
-            contentContainerStyle={[
-              styles.callListContent,
-              { paddingBottom: 160 },
-            ]}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
-              />
-            }
-          />
-        )}
-      </View>
-
-      {/* Floating Dial-Pad FAB docked bottom-right */}
-      <TouchableOpacity
-        style={styles.floatingDialPadFab}
-        onPress={() => setDialPadModalVisible(true)}
-        activeOpacity={0.85}
-      >
-        <GradientView colors={colors.primaryGradient} style={styles.fabGradient}>
-          <Ionicons name="keypad" size={24} color="#ffffff" />
-        </GradientView>
-      </TouchableOpacity>
-
-      {/* Dial Pad Modal */}
-      <Modal
-        visible={dialPadModalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setDialPadModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.dialPadModalContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-            <View style={styles.modalDragHandleRow}>
-              <View style={styles.modalDragHandle} />
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setDialPadModalVisible(false)}
+          {isAdmin && (
+            <View style={styles.adminBadge}>
+              <LinearGradient
+                colors={['#7C3AED', '#EC4899']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.adminBadgeGradient}
               >
-                <Ionicons name="close" size={22} color={colors.textSecondary} />
+                <Ionicons name="shield-checkmark" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
+                <Text style={styles.adminBadgeText}>ADMIN</Text>
+              </LinearGradient>
+            </View>
+          )}
+        </View>
+
+        {/* Animated Search Bar + Filter Button (Smoothly hides on scroll down) */}
+        <Animated.View
+          style={[
+            styles.searchBarContainer,
+            {
+              height: searchBarHeight,
+              opacity: searchBarOpacity,
+              transform: [{ translateY: searchBarTranslateY }],
+              overflow: 'hidden',
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.searchPillWrapper,
+              isSearchFocused && styles.searchPillFocused,
+            ]}
+          >
+            <Ionicons
+              name="search-outline"
+              size={20}
+              color="#94A3B8"
+              style={styles.searchIcon}
+            />
+
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search number or name..."
+              placeholderTextColor="#94A3B8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
+            />
+
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                style={styles.searchClearBtn}
+              >
+                <Ionicons name="close-circle" size={17} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+
+            {/* Filter Button with Active Indicator */}
+            <TouchableOpacity
+              style={[
+                styles.filterIconButton,
+                hasActiveFilters && styles.filterIconButtonActive,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => setFilterModalVisible(true)}
+            >
+              <Ionicons
+                name="options-outline"
+                size={18}
+                color={hasActiveFilters ? '#7C3AED' : '#6B21A8'}
+              />
+              {hasActiveFilters && <View style={styles.filterActiveDot} />}
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Active Filter Indicator Banner */}
+        {(selectedStatus !== 'ALL' || dateOption !== 'ALL' || (isAdmin && selectedUser !== null)) && (
+          <View style={styles.activeFilterPillRow}>
+            <View style={styles.activeFilterPill}>
+              <Ionicons
+                name={
+                  selectedStatus === 'PROSPECT'
+                    ? 'star'
+                    : selectedStatus === 'CONNECTED'
+                    ? 'checkmark-circle'
+                    : selectedStatus === 'JUNK'
+                    ? 'time'
+                    : selectedStatus === 'MISSED'
+                    ? 'call'
+                    : 'options'
+                }
+                size={14}
+                color={
+                  selectedStatus === 'PROSPECT'
+                    ? '#8B5CF6'
+                    : selectedStatus === 'CONNECTED'
+                    ? '#10B981'
+                    : selectedStatus === 'JUNK'
+                    ? '#F97316'
+                    : selectedStatus === 'MISSED'
+                    ? '#EF4444'
+                    : '#7C3AED'
+                }
+              />
+              <Text style={styles.activeFilterPillText}>
+                {selectedStatus !== 'ALL' ? `Filter: ${selectedStatus}` : 'Filtered'}
+                {dateOption !== 'ALL' ? ` • ${dateOption === 'WEEK' ? 'This Week' : dateOption === 'MONTH' ? 'This Month' : dateOption}` : ''}
+                {selectedUser ? ` • ${selectedUser.name}` : ''} ({groupedCalls.length} logs)
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedStatus('ALL');
+                  setDateOption('ALL');
+                  setCustomFromDate('');
+                  setCustomToDate('');
+                  setSelectedUser(null);
+                  fetchCalls(true);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.activeFilterClearBtn}
+              >
+                <Ionicons name="close-circle" size={16} color="#64748B" />
               </TouchableOpacity>
             </View>
-
-            <DialPad
-              initialNumber=""
-              onOpenLeadDetails={(leadId, leadName) => {
-                setDialPadModalVisible(false);
-                navigation.navigate('LeadDetails', { leadId, leadName });
-              }}
-              onStartCall={handleStartCall}
-            />
           </View>
+        )}
+
+        {/* Grouped Call History List */}
+        <View style={styles.listContainer}>
+          {loading && !refreshing ? (
+            <LoadingState message="Loading call history..." />
+          ) : groupedCalls.length === 0 ? (
+            <EmptyState
+              icon="call-outline"
+              title="No Calls Found"
+              message={
+                searchQuery || hasActiveFilters
+                  ? 'No calls matching the selected filter criteria.'
+                  : 'Your device and CRM call logs will appear here.'
+              }
+            />
+          ) : (
+            <FlatList
+              data={groupedCalls}
+              keyExtractor={(item) => item.id}
+              renderItem={renderGroupedCallItem}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              contentContainerStyle={[
+                styles.callListContent,
+                { paddingBottom: Math.max(insets.bottom, 16) + 160 },
+              ]}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={[colors.primary]}
+                  tintColor={colors.primary}
+                />
+              }
+              showsVerticalScrollIndicator={true}
+            />
+          )}
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {/* Modern Floating Action Button (FAB) for Manual Dialer - Elevated above floating tab bar */}
+        <View style={[styles.fabAnchorContainer, { bottom: Math.max(insets.bottom, 16) + 88 }]}>
+          <TouchableOpacity
+            style={styles.fabButton}
+            activeOpacity={0.85}
+            onPress={() => setDialPadModalVisible(true)}
+          >
+            <LinearGradient
+              colors={['#7C3AED', '#6366F1', '#4F46E5']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.fabGradient}
+            >
+              <Ionicons name="keypad" size={28} color="#FFFFFF" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* DialPad Modal Component: Positioned comfortably above navigation & home bar */}
+        <Modal
+          visible={dialPadModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setDialPadModalVisible(false)}
+        >
+          <View style={styles.dialPadModalOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => setDialPadModalVisible(false)}
+            />
+            <View style={[styles.dialPadModalCard, { paddingBottom: Math.max(insets.bottom, 28) + 20 }]}>
+              <View style={styles.dialPadModalHeader}>
+                <Text style={styles.dialPadModalTitle}>Direct Dial</Text>
+                <TouchableOpacity
+                  onPress={() => setDialPadModalVisible(false)}
+                  style={styles.dialPadModalClose}
+                >
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <DialPad
+                initialNumber=""
+                onOpenLeadDetails={(leadId, leadName) => {
+                  setDialPadModalVisible(false);
+                  navigation.navigate('LeadDetails', { leadId, leadName });
+                }}
+                onStartCall={handleStartCall}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Role-Based Filter Popup */}
+        <Modal
+          visible={filterModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setFilterModalVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.filterModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setFilterModalVisible(false)}
+          >
+            <View style={styles.filterModalContent} onStartShouldSetResponder={() => true}>
+              {/* Modal Header */}
+              <View style={styles.filterModalHeader}>
+                <View style={styles.filterModalTitleRow}>
+                  <View style={styles.filterModalIconWrap}>
+                    <Ionicons name="options" size={17} color="#7C3AED" />
+                  </View>
+                  <Text style={styles.filterModalTitle}>Filter Calls</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.filterModalCloseBtn}
+                  onPress={() => setFilterModalVisible(false)}
+                >
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.filterModalScroll} showsVerticalScrollIndicator={false}>
+                {/* 1. DATE RANGE (Radio Options: Today / Tomorrow / This Week / This Month / Custom) */}
+                <Text style={styles.filterSectionTitle}>DATE RANGE</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.dateRadioScrollContent}
+                  style={styles.dateRadioScroll}
+                >
+                  {[
+                    { id: 'TODAY' as const, label: 'Today' },
+                    { id: 'TOMORROW' as const, label: 'Tomorrow' },
+                    { id: 'WEEK' as const, label: 'This Week' },
+                    { id: 'MONTH' as const, label: 'This Month' },
+                    { id: 'CUSTOM' as const, label: 'Custom' },
+                  ].map((opt) => {
+                    const isSelected = dateOption === opt.id;
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[
+                          styles.radioChoiceRow,
+                          isSelected && styles.radioChoiceRowActive,
+                        ]}
+                        onPress={() => {
+                          if (isSelected) {
+                            setDateOption('ALL');
+                          } else {
+                            setDateOption(opt.id);
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
+                          {isSelected && <View style={styles.radioDotInner} />}
+                        </View>
+                        <Text
+                          style={[styles.radioLabelText, isSelected && styles.radioLabelTextActive]}
+                          numberOfLines={1}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Show Custom From/To Dates ONLY when "Custom" is selected */}
+                {dateOption === 'CUSTOM' && (
+                  <View style={styles.customDateRangeBox}>
+                    <Text style={styles.dateFieldLabel}>From Date</Text>
+                    <View style={styles.dateInputWrapper}>
+                      <Ionicons name="calendar-outline" size={18} color="#6366F1" style={{ marginRight: 10 }} />
+                      <TextInput
+                        style={styles.dateTextInput}
+                        placeholder="YYYY-MM-DD (e.g. 2026-09-26)"
+                        placeholderTextColor="#94A3B8"
+                        value={customFromDate}
+                        onChangeText={setCustomFromDate}
+                        maxLength={10}
+                      />
+                    </View>
+
+                    <Text style={[styles.dateFieldLabel, { marginTop: 10 }]}>To Date</Text>
+                    <View style={styles.dateInputWrapper}>
+                      <Ionicons name="calendar-outline" size={18} color="#6366F1" style={{ marginRight: 10 }} />
+                      <TextInput
+                        style={styles.dateTextInput}
+                        placeholder="YYYY-MM-DD (e.g. 2026-09-30)"
+                        placeholderTextColor="#94A3B8"
+                        value={customToDate}
+                        onChangeText={setCustomToDate}
+                        maxLength={10}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* 2. CALL USER FILTER (ADMIN ONLY) */}
+                {isAdmin && usersList.length > 0 && (
+                  <View style={styles.adminUserFilterSection}>
+                    <Text style={styles.filterSectionTitle}>CALL USER</Text>
+                    <TouchableOpacity
+                      style={[styles.userDropdownBtn, showUserDropdown && styles.userDropdownBtnActive]}
+                      onPress={() => setShowUserDropdown(!showUserDropdown)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.userDropdownLeft}>
+                        <Ionicons name="person-outline" size={16} color="#6366F1" style={{ marginRight: 8 }} />
+                        <Text style={styles.userDropdownText}>
+                          {selectedUser ? selectedUser.name : 'All Users'}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={showUserDropdown ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color="#64748B"
+                      />
+                    </TouchableOpacity>
+
+                    {showUserDropdown && (
+                      <View style={styles.userDropdownList}>
+                        <TouchableOpacity
+                          style={[
+                            styles.userDropdownItem,
+                            selectedUser === null && styles.userDropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setSelectedUser(null);
+                            setShowUserDropdown(false);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.userDropdownItemText,
+                              selectedUser === null && styles.userDropdownItemTextActive,
+                            ]}
+                          >
+                            All Users
+                          </Text>
+                          {selectedUser === null && (
+                            <Ionicons name="checkmark" size={15} color="#7C3AED" />
+                          )}
+                        </TouchableOpacity>
+
+                        {usersList.map((u) => {
+                          const isSel = selectedUser?.id === u.id;
+                          return (
+                            <TouchableOpacity
+                              key={u.id}
+                              style={[
+                                styles.userDropdownItem,
+                                isSel && styles.userDropdownItemActive,
+                              ]}
+                              onPress={() => {
+                                setSelectedUser({ id: u.id, name: u.name });
+                                setShowUserDropdown(false);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.userDropdownItemText,
+                                  isSel && styles.userDropdownItemTextActive,
+                                ]}
+                              >
+                                {u.name}
+                              </Text>
+                              {isSel && (
+                                <Ionicons name="checkmark" size={15} color="#7C3AED" />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* 3. CALL STATUS FILTER (Strictly 4 Statuses + All) */}
+                <Text style={styles.filterSectionTitle}>CALL STATUS</Text>
+                <View style={styles.statusChipsGrid}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChipBase,
+                      selectedStatus === 'ALL' && styles.statusChipAllActive,
+                    ]}
+                    onPress={() => setSelectedStatus('ALL')}
+                    activeOpacity={0.75}
+                  >
+                    <Text
+                      style={[
+                        styles.statusChipText,
+                        selectedStatus === 'ALL' && styles.statusChipTextAllActive,
+                      ]}
+                    >
+                      All
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChipBase,
+                      selectedStatus === 'PROSPECT' && styles.statusChipProspectActive,
+                    ]}
+                    onPress={() => setSelectedStatus(selectedStatus === 'PROSPECT' ? 'ALL' : 'PROSPECT')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: '#7C3AED' }]} />
+                    <Text
+                      style={[
+                        styles.statusChipText,
+                        selectedStatus === 'PROSPECT' && styles.statusChipTextProspectActive,
+                      ]}
+                    >
+                      PROSPECT
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChipBase,
+                      selectedStatus === 'CONNECTED' && styles.statusChipConnectedActive,
+                    ]}
+                    onPress={() => setSelectedStatus(selectedStatus === 'CONNECTED' ? 'ALL' : 'CONNECTED')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
+                    <Text
+                      style={[
+                        styles.statusChipText,
+                        selectedStatus === 'CONNECTED' && styles.statusChipTextConnectedActive,
+                      ]}
+                    >
+                      CONNECTED
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChipBase,
+                      selectedStatus === 'JUNK' && styles.statusChipJunkActive,
+                    ]}
+                    onPress={() => setSelectedStatus(selectedStatus === 'JUNK' ? 'ALL' : 'JUNK')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: '#F59E0B' }]} />
+                    <Text
+                      style={[
+                        styles.statusChipText,
+                        selectedStatus === 'JUNK' && styles.statusChipTextJunkActive,
+                      ]}
+                    >
+                      JUNK
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChipBase,
+                      selectedStatus === 'MISSED' && styles.statusChipMissedActive,
+                    ]}
+                    onPress={() => setSelectedStatus(selectedStatus === 'MISSED' ? 'ALL' : 'MISSED')}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: '#EF4444' }]} />
+                    <Text
+                      style={[
+                        styles.statusChipText,
+                        selectedStatus === 'MISSED' && styles.statusChipTextMissedActive,
+                      ]}
+                    >
+                      MISSED
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+
+              {/* Modal Footer Actions */}
+              <View style={styles.filterModalFooter}>
+                <TouchableOpacity
+                  style={styles.filterClearBtn}
+                  onPress={resetAllFilters}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.filterClearBtnText}>Clear Filter</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.filterApplyBtn}
+                  onPress={() => setFilterModalVisible(false)}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={['#7C3AED', '#6366F1']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.filterApplyGradient}
+                  >
+                    <Text style={styles.filterApplyBtnText}>Apply Filter</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Call Wrap-Up Confirmation Modal */}
+        {wrapUpCallData && (
+          <CallWrapUpModal
+            visible={wrapUpModalVisible}
+            leadId={wrapUpCallData.leadId}
+            leadName={wrapUpCallData.leadName}
+            phoneNumber={wrapUpCallData.phoneNumber}
+            telephonyCallId={wrapUpCallData.telephonyCallId}
+            initialDurationSeconds={wrapUpCallData.durationSeconds}
+            onClose={() => {
+              setWrapUpModalVisible(false);
+              setWrapUpCallData(null);
+              fetchCalls(true);
+            }}
+            onCompleted={(savedCall) => {
+              setWrapUpModalVisible(false);
+              setWrapUpCallData(null);
+              fetchCalls(true);
+            }}
+          />
+        )}
+      </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  screenRoot: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingTop: 4,
-    paddingBottom: 8,
-    gap: 8,
-  },
-  chipBtn: {
-    borderRadius: spacing.borderRadius.pill,
+    backgroundColor: '#F9FAFE',
+    position: 'relative',
     overflow: 'hidden',
   },
-  chipActive: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: spacing.borderRadius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
+  safeArea: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    zIndex: 10,
   },
-  chipTextActive: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
+
+  // Ambient Glow Auras
+  bgAuraPurpleTop: {
+    position: 'absolute',
+    top: -30,
+    right: -50,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    overflow: 'hidden',
   },
-  chipInactive: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: spacing.borderRadius.pill,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-    justifyContent: 'center',
+  bgAuraPurpleMid: {
+    position: 'absolute',
+    top: 260,
+    right: -70,
+    width: 290,
+    height: 290,
+    borderRadius: 145,
+    overflow: 'hidden',
   },
-  chipTextInactive: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '600',
+  bgAuraSkyBottom: {
+    position: 'absolute',
+    bottom: 60,
+    left: -60,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    overflow: 'hidden',
   },
-  topSearchBar: {
+  auraFill: {
+    flex: 1,
+  },
+
+  // Top Header Bar
+  topHeaderBar: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 46,
-    marginHorizontal: spacing.md,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: colors.primary,
+    justifyContent: 'flex-start',
+    gap: 8,
+  },
+  headerLogoImage: {
+    width: 95,
+    height: 34,
+  },
+  adminBadge: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 2,
   },
-  topSearchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.textPrimary,
-    marginLeft: 8,
-    paddingVertical: 0,
-  },
-  sliderBtn: {
-    padding: 4,
-  },
-  syncStatusContainer: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  syncStatusSubtitle: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  liveSyncBadge: {
+  adminBadgeGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.successLight,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 12,
   },
-  greenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.success,
+  adminBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
   },
-  liveSyncText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.success,
-    letterSpacing: 0.3,
-  },
-  actionCardsContainer: {
-    paddingHorizontal: spacing.md,
-    paddingTop: 4,
-    gap: 8,
-  },
-  defaultDialerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: 'rgba(79, 70, 229, 0.2)',
-    borderRadius: 14,
-    padding: 10,
-    gap: 10,
-  },
-  defaultDialerIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+
+  // Unified Search Bar Container
+  searchBarContainer: {
+    paddingHorizontal: 16,
     justifyContent: 'center',
   },
-  defaultDialerInfo: {
-    flex: 1,
-  },
-  defaultDialerTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  defaultDialerSub: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 1,
-  },
-  grantPermissionsCard: {
+  searchPillWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.warningLight,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(217, 119, 6, 0.2)',
-    borderRadius: 14,
-    padding: 10,
-    gap: 10,
-  },
-  permissionsIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  grantPermissionsInfo: {
-    flex: 1,
-  },
-  grantPermissionsTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.warning,
-  },
-  grantPermissionsSub: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 1,
-  },
-  listContainer: {
-    flex: 1,
-    marginTop: 6,
-  },
-  callListContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: 4,
-  },
-  callCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    marginBottom: 10,
+    borderColor: '#E2E8F0',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 231, 235, 0.8)',
-    shadowColor: colors.primary,
+    height: 46,
+    shadowColor: '#1E1B4B',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 2,
   },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  searchPillFocused: {
+    borderColor: '#8B5CF6',
+    shadowColor: '#8B5CF6',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
   },
-  avatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  avatarInitial: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  contactDetails: {
-    flex: 1,
+  searchIcon: {
     marginRight: 8,
   },
-  contactName: {
+  searchInput: {
+    flex: 1,
     fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
+    color: '#0F172A',
+    fontWeight: '500',
+    paddingVertical: 0,
   },
-  contactPhone: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 1,
+  searchClearBtn: {
+    padding: 4,
+    marginRight: 4,
   },
-  directionTimeRow: {
+  filterIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  filterIconButtonActive: {
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#8B5CF6',
+  },
+  filterActiveDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#7C3AED',
+  },
+
+  // Full-Width Call List
+  listContainer: {
+    flex: 1,
+    marginTop: 4,
+  },
+  callListContent: {
+    paddingTop: 4,
+  },
+  callRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F6',
+    backgroundColor: 'transparent',
+  },
+  avatarCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  avatarInitial: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  callInfoColumn: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  callerName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+    flexShrink: 1,
+  },
+  crmPill: {
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  crmPillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#7C3AED',
+    letterSpacing: 0.4,
+  },
+  callerPhone: {
+    fontSize: 12.5,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 2,
+    letterSpacing: 0.2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 3,
   },
-  directionTimeText: {
-    fontSize: 11,
-    color: colors.textMuted,
+  countBadgePill: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: '#C7D2FE',
   },
-  rightActionsCol: {
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  directionIcon: {
+    marginRight: 3,
+  },
+  directionText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  metaDot: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginHorizontal: 5,
+  },
+  metaTimestamp: {
+    fontSize: 11.5,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  rightActionColumn: {
     alignItems: 'flex-end',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 7,
+    marginLeft: 8,
   },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: spacing.borderRadius.pill,
+    borderRadius: 6,
   },
   statusBadgeText: {
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
-  callBtnAndMenu: {
+  dialActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+
+  // Floating Action Button (FAB) - Enlarged & elevated
+  fabAnchorContainer: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 99,
+  },
+  fabButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    overflow: 'hidden',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.42,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  fabGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // DialPad Modal - Positioned with ample bottom padding
+  dialPadModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  dialPadModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    maxHeight: '94%',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  dialPadModalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  roundCallBtn: {
+  dialPadModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  dialPadModalClose: {
+    padding: 4,
+  },
+
+  // Date Range Filter Modal
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  filterModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    width: '100%',
+    maxHeight: '85%',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F6',
+    marginBottom: 14,
+  },
+  filterModalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  filterModalIconWrap: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.callGreen,
+    backgroundColor: '#EDE9FE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  menuDotBtn: {
-    padding: 2,
+  filterModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
   },
-  tagChipRow: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  calledByContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  calledByText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  calledByName: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  tagChip: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: spacing.borderRadius.pill,
-    backgroundColor: colors.pastelGreen,
-  },
-  tagChipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.pastelGreenText,
-  },
-  floatingDialPadFab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 85,
-    borderRadius: 27,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-    zIndex: 99,
-  },
-  fabGradient: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(17, 24, 39, 0.4)',
-    justifyContent: 'flex-end',
-  },
-  dialPadModalContent: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 24,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  modalDragHandleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  modalDragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    alignSelf: 'center',
-    marginLeft: 'auto',
-    marginRight: 'auto',
-  },
-  modalCloseButton: {
+  filterModalCloseBtn: {
     padding: 4,
+  },
+  filterModalScroll: {
+    maxHeight: 380,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    marginTop: 6,
+  },
+
+  // Date Radio Options
+  dateRadioScroll: {
+    marginBottom: 12,
+  },
+  dateRadioScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 2,
+    paddingRight: 4,
+  },
+  radioChoiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 9,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    minHeight: 40,
+  },
+  radioChoiceRowActive: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#7C3AED',
+  },
+  radioCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleActive: {
+    borderColor: '#7C3AED',
+  },
+  radioDotInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#7C3AED',
+  },
+  radioLabelText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  radioLabelTextActive: {
+    color: '#7C3AED',
+    fontWeight: '700',
+  },
+
+  // Custom From / To Date inputs
+  customDateRangeBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
+  },
+  dateFieldLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 4,
+  },
+  dateInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  dateTextInput: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+    paddingVertical: 0,
+  },
+
+  // Admin User Filter
+  adminUserFilterSection: {
+    marginBottom: 14,
+  },
+  userDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  userDropdownBtnActive: {
+    borderColor: '#8B5CF6',
+    backgroundColor: '#F5F3FF',
+  },
+  userDropdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userDropdownText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  userDropdownList: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 6,
+    paddingVertical: 4,
+  },
+  userDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  userDropdownItemActive: {
+    backgroundColor: '#F5F3FF',
+  },
+  userDropdownItemText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  userDropdownItemTextActive: {
+    color: '#7C3AED',
+    fontWeight: '700',
+  },
+
+  // Call Status Chips Grid
+  statusChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  statusChipBase: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 6,
+  },
+  statusChipAllActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
+  },
+  statusChipProspectActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#7C3AED',
+  },
+  statusChipConnectedActive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#10B981',
+  },
+  statusChipJunkActive: {
+    backgroundColor: '#FFEDD5',
+    borderColor: '#F59E0B',
+  },
+  statusChipMissedActive: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#EF4444',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  statusChipTextAllActive: {
+    color: '#4F46E5',
+    fontWeight: '800',
+  },
+  statusChipTextProspectActive: {
+    color: '#7C3AED',
+    fontWeight: '800',
+  },
+  statusChipTextConnectedActive: {
+    color: '#059669',
+    fontWeight: '800',
+  },
+  statusChipTextJunkActive: {
+    color: '#D97706',
+    fontWeight: '800',
+  },
+  statusChipTextMissedActive: {
+    color: '#DC2626',
+    fontWeight: '800',
+  },
+
+  // Modal Footer Actions
+  filterModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 16,
+    marginTop: 8,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  filterClearBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterClearBtnText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  filterApplyBtn: {
+    flex: 1.5,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  filterApplyGradient: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterApplyBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  activeFilterPillRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeFilterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  activeFilterPillText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  activeFilterClearBtn: {
+    marginLeft: 4,
   },
 });

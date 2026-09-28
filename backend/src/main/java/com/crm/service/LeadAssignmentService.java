@@ -10,6 +10,7 @@ import java.util.Optional;
 public interface LeadAssignmentService {
     AssignmentHistoryResponse assignLead(Long leadId, Long userId, Long assignerId);
     AssignmentHistoryResponse reassignLead(Long leadId, Long newUserId, Long assignerId);
+    List<AssignmentHistoryResponse> bulkAssignLeads(List<Long> leadIds, Long userId, Long assignerId);
     List<AssignmentHistoryResponse> getAssignmentHistory(Long leadId);
     Optional<LeadAssignment> getActiveAssignment(Long leadId);
     List<User> getPreviousOwners(Long leadId);

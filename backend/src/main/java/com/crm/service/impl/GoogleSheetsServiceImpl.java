@@ -50,6 +50,7 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
     private final SalesRepository salesRepository;
     private final NoteRepository noteRepository;
     private final AttendanceRepository attendanceRepository;
+    private final ShiftChangeRequestRepository shiftChangeRequestRepository;
     private final AdminAccessRequestRepository adminAccessRequestRepository;
     private final AuditLogRepository auditLogRepository;
     private final AuditService auditService;
@@ -352,7 +353,27 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             }
             addTable(headersMap, tablesMap, rowCounts, "Admin_Access_Requests", adminReqHeaders, adminReqRows);
 
-            // 12. Audit_Logs (Read-only historical snapshot)
+            // 12. Shift_Change_Requests
+            List<String> shiftReqHeaders = List.of("id", "user_id", "current_shift", "requested_shift", "status", "reason", "admin_notes", "reviewed_by_user_id", "reviewed_at", "requested_at", "updated_at");
+            List<List<Object>> shiftReqRows = new ArrayList<>();
+            for (ShiftChangeRequest scr : shiftChangeRequestRepository.findAll()) {
+                shiftReqRows.add(List.of(
+                        scr.getId(),
+                        scr.getUser() != null ? scr.getUser().getId() : "",
+                        scr.getCurrentShift() != null ? scr.getCurrentShift().name() : "",
+                        scr.getRequestedShift() != null ? scr.getRequestedShift().name() : "",
+                        safeStr(scr.getStatus()),
+                        safeStr(scr.getReason()),
+                        safeStr(scr.getAdminNotes()),
+                        scr.getReviewedBy() != null ? scr.getReviewedBy().getId() : "",
+                        formatDate(scr.getReviewedAt()),
+                        formatDate(scr.getRequestedAt()),
+                        formatDate(scr.getUpdatedAt())
+                ));
+            }
+            addTable(headersMap, tablesMap, rowCounts, "Shift_Change_Requests", shiftReqHeaders, shiftReqRows);
+
+            // 13. Audit_Logs (Read-only historical snapshot)
             List<String> auditHeaders = List.of("id", "user_id", "entity_name", "entity_id", "action", "old_value", "new_value", "created_at");
             List<List<Object>> auditRows = new ArrayList<>();
             for (AuditLog al : auditLogRepository.findAll()) {
@@ -462,6 +483,7 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             List<Map<String, Object>> saleRows = getTableRows(tables, "sales", "Sales");
             List<Map<String, Object>> noteRows = getTableRows(tables, "notes", "Notes");
             List<Map<String, Object>> attendanceRows = getTableRows(tables, "attendance", "Attendance");
+            List<Map<String, Object>> shiftReqRows = getTableRows(tables, "shift_change_requests", "Shift_Change_Requests", "shiftchangerequests");
             List<Map<String, Object>> adminReqRows = getTableRows(tables, "admin_access_requests", "Admin_Access_Requests");
 
             // =========================================================================
@@ -747,6 +769,22 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                 }
             }
 
+            // 12. Validate Shift_Change_Requests
+            Set<Long> seenShiftReqIds = new HashSet<>();
+            for (int i = 0; i < shiftReqRows.size(); i++) {
+                int rowNum = i + 2;
+                Map<String, Object> row = shiftReqRows.get(i);
+                Long id = parseLong(row.get("id"));
+                Long userId = parseLong(row.get("user_id"));
+
+                if (id != null && !seenShiftReqIds.add(id)) {
+                    throw new GoogleSheetsValidationException("Shift_Change_Requests", rowNum, "id", "Duplicate primary key ID " + id + " found.");
+                }
+                if (userId == null || !candidateUserIds.contains(userId)) {
+                    throw new GoogleSheetsValidationException("Shift_Change_Requests", rowNum, "user_id", "User ID " + userId + " does not exist.");
+                }
+            }
+
             log.info("Google Sheets Push Phase 1 Validation PASSED for all {} tables. Starting database transaction...", tables.size());
 
             // =========================================================================
@@ -805,21 +843,32 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             int updatedUsers = 0;
             Set<Long> processedUserIds = new HashSet<>();
             for (Map<String, Object> row : userRows) {
-                Long id = parseLong(row.get("id"));
-                String name = parseString(row.get("name"));
-                String email = parseString(row.get("email"));
-                String phone = parseString(row.get("phone"));
-                Long roleId = parseLong(row.get("role_id"));
-                String status = parseString(row.get("status"));
+                Long id = parseLong(getRowValue(row, "id", "userId", "user_id"));
+                String name = parseString(getRowValue(row, "name", "userName", "user_name"));
+                String email = parseString(getRowValue(row, "email"));
+                String phone = parseString(getRowValue(row, "phone", "phone_number", "phoneNumber"));
+                Long roleId = parseLong(getRowValue(row, "role_id", "roleId"));
+                String roleName = parseString(getRowValue(row, "role", "role_name", "roleName"));
+                String status = parseString(getRowValue(row, "status"));
                 if (status == null) status = "ACTIVE";
-                String firebaseUid = parseString(row.get("firebase_uid"));
+                String firebaseUid = parseString(getRowValue(row, "firebase_uid", "firebaseUid"));
 
                 User user = (id != null) ? userRepository.findById(id).orElse(null) : null;
                 if (user == null && email != null) {
                     user = userRepository.findByEmail(email).orElse(null);
                 }
 
-                Role role = (roleId != null) ? roleRepository.findById(roleId).orElse(null) : null;
+                Role role = null;
+                if (roleId != null) {
+                    role = roleRepository.findById(roleId).orElse(null);
+                }
+                if (role == null && roleName != null) {
+                    String normRole = roleName.trim();
+                    if (!normRole.startsWith("ROLE_")) {
+                        normRole = "ROLE_" + normRole.toUpperCase();
+                    }
+                    role = roleRepository.findByName(normRole).orElse(null);
+                }
                 if (role == null) {
                     role = roleRepository.findByName("ROLE_USER").orElse(null);
                 }
@@ -854,19 +903,19 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             int updatedLeads = 0;
             Set<Long> processedLeadIds = new HashSet<>();
             for (Map<String, Object> row : leadRows) {
-                Long id = parseLong(row.get("id"));
-                Long projectId = parseLong(row.get("project_id"));
-                String name = parseString(row.get("name"));
-                String phone = parseString(row.get("phone"));
-                String email = parseString(row.get("email"));
-                String address = parseString(row.get("address"));
-                String city = parseString(row.get("city"));
-                String state = parseString(row.get("state"));
-                String source = parseString(row.get("source"));
-                String status = parseString(row.get("status"));
+                Long id = parseLong(getRowValue(row, "id", "lead_id", "leadId"));
+                Long projectId = parseLong(getRowValue(row, "project_id", "projectId"));
+                String name = parseString(getRowValue(row, "name", "lead_name", "leadName"));
+                String phone = parseString(getRowValue(row, "phone", "phone_number", "phoneNumber"));
+                String email = parseString(getRowValue(row, "email"));
+                String address = parseString(getRowValue(row, "address"));
+                String city = parseString(getRowValue(row, "city"));
+                String state = parseString(getRowValue(row, "state"));
+                String source = parseString(getRowValue(row, "source"));
+                String status = parseString(getRowValue(row, "status"));
                 if (status == null) status = "NEW";
-                String outcome = parseString(row.get("business_outcome"));
-                String additionalInfo = parseString(row.get("additional_info"));
+                String outcome = parseString(getRowValue(row, "business_outcome", "businessOutcome"));
+                String additionalInfo = parseString(getRowValue(row, "additional_info", "additionalInfo", "notes"));
 
                 Project project = projectId != null ? projectRepository.findById(projectId).orElse(null) : null;
 
@@ -884,11 +933,18 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                     lead.setBusinessOutcome(outcome);
                     lead.setAdditionalInfo(additionalInfo);
 
-                    // Call metrics & follow up dates if present
+                    // Call metrics & follow up dates
                     if (row.containsKey("total_call_count")) lead.setTotalCallCount(parseInteger(row.get("total_call_count")));
                     if (row.containsKey("connected_call_count")) lead.setConnectedCallCount(parseInteger(row.get("connected_call_count")));
                     if (row.containsKey("missed_call_count")) lead.setMissedCallCount(parseInteger(row.get("missed_call_count")));
+                    if (row.containsKey("rejected_call_count")) lead.setRejectedCallCount(parseInteger(row.get("rejected_call_count")));
+                    if (row.containsKey("failed_call_count")) lead.setFailedCallCount(parseInteger(row.get("failed_call_count")));
+                    if (row.containsKey("short_call_count")) lead.setShortCallCount(parseInteger(row.get("short_call_count")));
+                    if (row.containsKey("junk_call_count")) lead.setJunkCallCount(parseInteger(row.get("junk_call_count")));
+                    if (row.containsKey("last_call_id")) lead.setLastCallId(parseLong(row.get("last_call_id")));
                     if (row.containsKey("last_call_status")) lead.setLastCallStatus(parseString(row.get("last_call_status")));
+                    if (row.containsKey("last_call_duration")) lead.setLastCallDuration(parseInteger(row.get("last_call_duration")));
+                    if (row.containsKey("last_contacted_at")) lead.setLastContactedAt(parseDateTime(row.get("last_contacted_at")));
                     if (row.containsKey("follow_up_required")) lead.setFollowUpRequired(parseBoolean(row.get("follow_up_required")));
                     if (row.containsKey("next_follow_up_at")) lead.setNextFollowUpAt(parseDateTime(row.get("next_follow_up_at")));
 
@@ -910,6 +966,14 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                             .totalCallCount(parseInteger(row.get("total_call_count")))
                             .connectedCallCount(parseInteger(row.get("connected_call_count")))
                             .missedCallCount(parseInteger(row.get("missed_call_count")))
+                            .rejectedCallCount(parseInteger(row.get("rejected_call_count")))
+                            .failedCallCount(parseInteger(row.get("failed_call_count")))
+                            .shortCallCount(parseInteger(row.get("short_call_count")))
+                            .junkCallCount(parseInteger(row.get("junk_call_count")))
+                            .lastCallId(parseLong(row.get("last_call_id")))
+                            .lastCallStatus(parseString(row.get("last_call_status")))
+                            .lastCallDuration(parseInteger(row.get("last_call_duration")))
+                            .lastContactedAt(parseDateTime(row.get("last_contacted_at")))
                             .followUpRequired(parseBoolean(row.get("follow_up_required")))
                             .nextFollowUpAt(parseDateTime(row.get("next_follow_up_at")))
                             .build();
@@ -923,14 +987,14 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             // 5. Lead_Assignments
             int updatedAssignments = 0;
             for (Map<String, Object> row : assignmentRows) {
-                Long id = parseLong(row.get("id"));
-                Long leadId = parseLong(row.get("lead_id"));
-                Long userId = parseLong(row.get("user_id"));
-                Long assignedById = parseLong(row.get("assigned_by"));
-                Boolean isActive = parseBoolean(row.get("is_active"));
-                LocalDateTime assignedAt = parseDateTime(row.get("assigned_at"));
+                Long id = parseLong(getRowValue(row, "id", "assignment_id", "assignmentId"));
+                Long leadId = parseLong(getRowValue(row, "lead_id", "leadId"));
+                Long userId = parseLong(getRowValue(row, "user_id", "userId"));
+                Long assignedById = parseLong(getRowValue(row, "assigned_by", "assignedBy"));
+                Boolean isActive = parseBoolean(getRowValue(row, "is_active", "isActive"));
+                LocalDateTime assignedAt = parseDateTime(getRowValue(row, "assigned_at", "assignedAt"));
                 if (assignedAt == null) assignedAt = LocalDateTime.now();
-                LocalDateTime unassignedAt = parseDateTime(row.get("unassigned_at"));
+                LocalDateTime unassignedAt = parseDateTime(getRowValue(row, "unassigned_at", "unassignedAt"));
 
                 Lead lead = leadRepository.findById(leadId).orElse(null);
                 User user = userRepository.findById(userId).orElse(null);
@@ -965,26 +1029,36 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
             // 6. Calls
             int updatedCalls = 0;
             for (Map<String, Object> row : callRows) {
-                Long id = parseLong(row.get("id"));
-                Long leadId = parseLong(row.get("lead_id"));
-                Long userId = parseLong(row.get("user_id"));
-                String telephonyCallId = parseString(row.get("telephony_call_id"));
-                String phoneNumber = parseString(row.get("phone_number"));
-                Boolean isConnected = parseBoolean(row.get("is_connected"));
-                String direction = parseString(row.get("call_direction"));
+                Long id = parseLong(getRowValue(row, "id", "call_id", "callId"));
+                Long leadId = parseLong(getRowValue(row, "lead_id", "leadId"));
+                Long userId = parseLong(getRowValue(row, "user_id", "userId"));
+                String telephonyCallId = parseString(getRowValue(row, "telephony_call_id", "telephonyCallId"));
+                String phoneNumber = parseString(getRowValue(row, "phone_number", "phoneNumber", "phone"));
+                Boolean isConnected = parseBoolean(getRowValue(row, "is_connected", "isConnected"));
+                String direction = parseString(getRowValue(row, "call_direction", "callDirection"));
                 if (direction == null) direction = "OUTBOUND";
-                String lifecycle = parseString(row.get("call_lifecycle_status"));
+                String lifecycle = parseString(getRowValue(row, "call_lifecycle_status", "callLifecycleStatus"));
                 if (lifecycle == null) lifecycle = "ENDED";
-                LocalDateTime startedAt = parseDateTime(row.get("started_at"));
-                LocalDateTime endedAt = parseDateTime(row.get("ended_at"));
-                Integer duration = parseInteger(row.get("duration_seconds"));
-                String callStatus = parseString(row.get("call_status"));
+                LocalDateTime startedAt = parseDateTime(getRowValue(row, "started_at", "startedAt"));
+                LocalDateTime connectedAt = parseDateTime(getRowValue(row, "connected_at", "connectedAt"));
+                LocalDateTime endedAt = parseDateTime(getRowValue(row, "ended_at", "endedAt"));
+                Integer duration = parseInteger(getRowValue(row, "duration_seconds", "durationSeconds", "duration"));
+                String callStatus = parseString(getRowValue(row, "call_status", "callStatus"));
                 if (callStatus == null) callStatus = "NOT_ATTENDED";
-                String outcome = parseString(row.get("business_outcome"));
-                String notes = parseString(row.get("notes"));
+                String outcome = parseString(getRowValue(row, "business_outcome", "businessOutcome"));
+                String autoClassification = parseString(getRowValue(row, "automatic_classification", "automaticClassification"));
+                String finalClassification = parseString(getRowValue(row, "final_classification", "finalClassification"));
+                Boolean manualChanged = parseBoolean(getRowValue(row, "classification_changed_manually", "classificationChangedManually"));
+                Long changedByUserId = parseLong(getRowValue(row, "classification_changed_by_user_id", "classificationChangedByUserId"));
+                LocalDateTime changedAt = parseDateTime(getRowValue(row, "classification_changed_at", "classificationChangedAt"));
+                Boolean followUpReq = parseBoolean(getRowValue(row, "follow_up_required", "followUpRequired"));
+                LocalDateTime followUpDate = parseDateTime(getRowValue(row, "follow_up_date", "followUpDate"));
+                Long followUpId = parseLong(getRowValue(row, "follow_up_id", "followUpId"));
+                String notes = parseString(getRowValue(row, "notes"));
 
                 User user = userRepository.findById(userId).orElse(null);
                 Lead lead = leadId != null ? leadRepository.findById(leadId).orElse(null) : null;
+                User changedByUser = changedByUserId != null ? userRepository.findById(changedByUserId).orElse(null) : null;
 
                 if (user != null) {
                     Call call = (id != null) ? callRepository.findById(id).orElse(null) : null;
@@ -997,10 +1071,19 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                         call.setCallDirection(direction);
                         call.setCallLifecycleStatus(lifecycle);
                         call.setStartedAt(startedAt);
+                        call.setConnectedAt(connectedAt);
                         call.setEndedAt(endedAt);
                         call.setDurationSeconds(duration != null ? duration : 0);
                         call.setCallStatus(callStatus);
                         call.setBusinessOutcome(outcome);
+                        call.setAutomaticClassification(autoClassification);
+                        call.setFinalClassification(finalClassification);
+                        call.setClassificationChangedManually(manualChanged);
+                        call.setClassificationChangedBy(changedByUser);
+                        call.setClassificationChangedAt(changedAt);
+                        call.setFollowUpRequired(followUpReq);
+                        call.setFollowUpDate(followUpDate);
+                        call.setFollowUpId(followUpId);
                         call.setNotes(notes);
                         callRepository.save(call);
                     } else {
@@ -1013,10 +1096,19 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                                 .callDirection(direction)
                                 .callLifecycleStatus(lifecycle)
                                 .startedAt(startedAt)
+                                .connectedAt(connectedAt)
                                 .endedAt(endedAt)
                                 .durationSeconds(duration != null ? duration : 0)
                                 .callStatus(callStatus)
                                 .businessOutcome(outcome)
+                                .automaticClassification(autoClassification)
+                                .finalClassification(finalClassification)
+                                .classificationChangedManually(manualChanged)
+                                .classificationChangedBy(changedByUser)
+                                .classificationChangedAt(changedAt)
+                                .followUpRequired(followUpReq)
+                                .followUpDate(followUpDate)
+                                .followUpId(followUpId)
                                 .notes(notes)
                                 .build();
                         callRepository.save(call);
@@ -1236,6 +1328,61 @@ public class GoogleSheetsServiceImpl implements GoogleSheetsService {
                 }
             }
             recordsUpdated.put("Admin_Access_Requests", updatedAdminReqs);
+
+            // 12. Shift_Change_Requests
+            int updatedShiftReqs = 0;
+            for (Map<String, Object> row : shiftReqRows) {
+                Long id = parseLong(row.get("id"));
+                Long userId = parseLong(row.get("user_id"));
+                String currentShiftStr = parseString(row.get("current_shift"));
+                String requestedShiftStr = parseString(row.get("requested_shift"));
+                String status = parseString(row.get("status"));
+                if (status == null) status = "PENDING";
+                String reason = parseString(row.get("reason"));
+                String adminNotes = parseString(row.get("admin_notes"));
+                Long reviewedByUserId = parseLong(row.get("reviewed_by_user_id"));
+                LocalDateTime reviewedAt = parseDateTime(row.get("reviewed_at"));
+
+                User user = userRepository.findById(userId).orElse(null);
+                User reviewer = reviewedByUserId != null ? userRepository.findById(reviewedByUserId).orElse(null) : null;
+                WorkShift currentShift = null;
+                WorkShift requestedShift = null;
+                try {
+                    if (currentShiftStr != null) currentShift = WorkShift.valueOf(currentShiftStr);
+                } catch (Exception ignored) {}
+                try {
+                    if (requestedShiftStr != null) requestedShift = WorkShift.valueOf(requestedShiftStr);
+                } catch (Exception ignored) {}
+
+                if (user != null) {
+                    ShiftChangeRequest scr = (id != null) ? shiftChangeRequestRepository.findById(id).orElse(null) : null;
+                    if (scr != null) {
+                        scr.setUser(user);
+                        if (currentShift != null) scr.setCurrentShift(currentShift);
+                        if (requestedShift != null) scr.setRequestedShift(requestedShift);
+                        scr.setStatus(status);
+                        scr.setReason(reason);
+                        scr.setAdminNotes(adminNotes);
+                        scr.setReviewedBy(reviewer);
+                        scr.setReviewedAt(reviewedAt);
+                        shiftChangeRequestRepository.save(scr);
+                    } else {
+                        scr = ShiftChangeRequest.builder()
+                                .user(user)
+                                .currentShift(currentShift != null ? currentShift : user.getShift())
+                                .requestedShift(requestedShift != null ? requestedShift : WorkShift.SHIFT_1000_1900)
+                                .status(status)
+                                .reason(reason)
+                                .adminNotes(adminNotes)
+                                .reviewedBy(reviewer)
+                                .reviewedAt(reviewedAt)
+                                .build();
+                        shiftChangeRequestRepository.save(scr);
+                    }
+                    updatedShiftReqs++;
+                }
+            }
+            recordsUpdated.put("Shift_Change_Requests", updatedShiftReqs);
 
             int totalUpdated = 0;
             for (int count : recordsUpdated.values()) {

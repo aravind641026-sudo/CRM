@@ -58,10 +58,13 @@ public interface CallRepository extends JpaRepository<Call, Long> {
     @Query("SELECT COALESCE(SUM(c.durationSeconds), 0) FROM Call c WHERE c.user.id = :userId")
     long sumDurationByUserId(@Param("userId") Long userId);
 
+    void deleteByUserId(Long userId);
+
+    List<Call> findByClassificationChangedById(Long classificationChangedById);
+
     long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
     long countByCallStatus(String callStatus);
 
     List<Call> findByUserId(Long userId);
     List<Call> findByUserIdAndCreatedAtBetween(Long userId, LocalDateTime start, LocalDateTime end);
-    void deleteByUserId(Long userId);
 }

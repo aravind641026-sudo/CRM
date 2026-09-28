@@ -14,6 +14,8 @@ import com.crm.model.FollowUp;
 import com.crm.model.Lead;
 import com.crm.model.Project;
 import com.crm.model.User;
+import com.crm.model.AuditLog;
+import com.crm.repository.AuditLogRepository;
 import com.crm.repository.CallRepository;
 import com.crm.repository.FollowUpRepository;
 import com.crm.repository.LeadRepository;
@@ -43,6 +45,7 @@ public class CallTrackingServiceImpl implements CallTrackingService {
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final FollowUpRepository followUpRepository;
+    private final AuditLogRepository auditLogRepository;
     private final LeadAssignmentService leadAssignmentService;
     private final AuditService auditService;
     private final CallMapper callMapper;
@@ -172,15 +175,17 @@ public class CallTrackingServiceImpl implements CallTrackingService {
 
         // Determine Connection Status
         boolean isConnected = false;
-        if ("CALL_MISSED".equals(eventType) || "CALL_REJECTED".equals(eventType) || "CALL_FAILED".equals(eventType) || "CALL_CANCELLED".equals(eventType)) {
+        if (request.getIsConnected() != null) {
+            isConnected = request.getIsConnected() && duration > 0;
+        } else if ("CALL_MISSED".equals(eventType) || "CALL_REJECTED".equals(eventType) || "CALL_FAILED".equals(eventType) || "CALL_CANCELLED".equals(eventType)) {
             isConnected = false;
         } else if (request.getTechnicalStatus() != null && !request.getTechnicalStatus().isBlank()) {
             isConnected = com.crm.util.CallStatusCalculator.isConnectedResult(request.getTechnicalStatus()) && duration > 0;
-        } else if (call.getConnectedAt() != null || duration > 0 || "CONNECTED".equalsIgnoreCase(call.getCallLifecycleStatus())) {
+        } else if (call.getConnectedAt() != null || "CONNECTED".equalsIgnoreCase(call.getCallLifecycleStatus())) {
             isConnected = duration > 0;
         }
 
-        // Automatic Status Calculation using exact boundaries (Section 2 & 11)
+        // Automatic Status Calculation using exact business rules (MISSED, JUNK, CONNECTED, PROSPECT)
         String calculatedStatus = com.crm.util.CallStatusCalculator.calculateStatus(isConnected, duration);
 
         call.setIsConnected(isConnected);
@@ -342,6 +347,43 @@ public class CallTrackingServiceImpl implements CallTrackingService {
                     .followUpStatus(status)
                     .notes(fu.getNotes())
                     .title("Scheduled Follow-up")
+                    .build());
+        }
+
+        // 3. Add Complete Audit Trail (Created, Assigned, Reassigned, Status Changed, Converted, Updated)
+        List<AuditLog> auditLogs = auditLogRepository.findByEntityNameAndEntityIdOrderByCreatedAtDesc("Lead", leadId);
+        for (AuditLog al : auditLogs) {
+            String title = "Activity Logged";
+            String type = "AUDIT";
+            String action = al.getAction() != null ? al.getAction().toUpperCase() : "";
+            if ("CREATE".equals(action)) {
+                title = "Lead created";
+                type = "LEAD_CREATED";
+            } else if ("ASSIGN".equals(action)) {
+                title = "Lead assigned";
+                type = "ASSIGNMENT";
+            } else if ("REASSIGN".equals(action)) {
+                title = "Lead reassigned";
+                type = "ASSIGNMENT";
+            } else if ("STATUS_CHANGE".equals(action)) {
+                title = "Status changed";
+                type = "STATUS_CHANGE";
+            } else if ("CONVERT".equals(action)) {
+                title = "Lead converted";
+                type = "CONVERT";
+            } else if ("UPDATE".equals(action)) {
+                title = "Lead updated";
+                type = "UPDATE";
+            }
+            timeline.add(LeadTimelineItemResponse.builder()
+                    .type(type)
+                    .id(al.getId())
+                    .leadId(leadId)
+                    .userId(al.getUser() != null ? al.getUser().getId() : null)
+                    .userName(al.getUser() != null ? al.getUser().getName() : "System")
+                    .timestamp(al.getCreatedAt())
+                    .title(title)
+                    .notes(al.getNewValue() != null ? al.getNewValue() : al.getOldValue())
                     .build());
         }
 

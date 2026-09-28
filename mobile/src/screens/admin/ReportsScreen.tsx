@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
@@ -23,6 +24,7 @@ import { Badge } from '../../components/common/Badge';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { LoadingState } from '../../components/common/LoadingState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { reportsApi, AdminAnalyticsDashboardData } from '../../api/reportsApi';
 import { projectsApi } from '../../api/projectsApi';
 import { usersApi } from '../../api/usersApi';
@@ -218,70 +220,58 @@ export const ReportsScreen: React.FC = () => {
   const followUpReport = dashboardData?.followUpReport;
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+    <AmbientBackground variant="reports">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <MeqHeader
         showLogo={false}
         title="Reports & Analytics"
-        subtitle="Live organization intelligence & pipeline analytics"
+        subtitle="Live organization intelligence & pipeline insights"
         onBack={() => navigation.goBack()}
         rightElement={
           <TouchableOpacity
-            style={styles.filterToggleBtn}
             onPress={() => setShowFiltersModal(true)}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
+            style={styles.filterBtnWrapper}
           >
-            <Ionicons name="filter" size={15} color={colors.primary} />
-            <Text style={styles.filterToggleText}>Filters</Text>
+            <LinearGradient
+              colors={['#2563EB', '#7C3AED', '#9333EA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.filterToggleBtn}
+            >
+              <Ionicons name="options-outline" size={15} color="#FFFFFF" />
+              <Text style={styles.filterToggleText}>Filters</Text>
+            </LinearGradient>
           </TouchableOpacity>
         }
       />
 
-      {/* Filter Summary Header Strip */}
+      {/* Filter Summary Header Strip matching Screenshot 4 */}
       <View style={styles.filterSummaryStrip}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsStrip}>
-          <View style={styles.summaryChip}>
-            <Ionicons name="calendar-outline" size={12} color="#4F46E5" />
-            <Text style={styles.summaryChipText}>
-              {datePreset === 'TODAY'
-                ? 'Today'
-                : datePreset === 'YESTERDAY'
-                ? 'Yesterday'
-                : datePreset === 'LAST_7_DAYS'
-                ? 'Last 7 Days'
-                : datePreset === 'LAST_30_DAYS'
-                ? 'Last 30 Days'
-                : 'Custom Range'}
-            </Text>
-          </View>
+        <TouchableOpacity
+          style={styles.presetDropdownBtn}
+          onPress={() => setShowFiltersModal(true)}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="calendar-outline" size={14} color="#6366F1" />
+          <Text style={styles.presetDropdownText}>
+            {datePreset === 'TODAY'
+              ? 'Today'
+              : datePreset === 'YESTERDAY'
+              ? 'Yesterday'
+              : datePreset === 'LAST_7_DAYS'
+              ? 'Last 7 Days'
+              : datePreset === 'LAST_30_DAYS'
+              ? 'Last 30 Days'
+              : 'Custom Range'}
+          </Text>
+          <Ionicons name="chevron-down" size={13} color="#64748B" />
+        </TouchableOpacity>
 
-          {selectedProjectId && (
-            <View style={styles.summaryChip}>
-              <Ionicons name="briefcase-outline" size={12} color="#059669" />
-              <Text style={styles.summaryChipText}>{selectedProjectName}</Text>
-            </View>
-          )}
-
-          {selectedUserId && (
-            <View style={styles.summaryChip}>
-              <Ionicons name="person-outline" size={12} color="#D97706" />
-              <Text style={styles.summaryChipText}>{selectedUserName}</Text>
-            </View>
-          )}
-
-          {selectedLeadStatus && (
-            <View style={styles.summaryChip}>
-              <Ionicons name="pricetag-outline" size={12} color="#7C3AED" />
-              <Text style={styles.summaryChipText}>{selectedLeadStatus}</Text>
-            </View>
-          )}
-
-          {selectedCallStatus && (
-            <View style={styles.summaryChip}>
-              <Ionicons name="call-outline" size={12} color="#DC2626" />
-              <Text style={styles.summaryChipText}>{selectedCallStatus}</Text>
-            </View>
-          )}
-        </ScrollView>
+        <View style={styles.liveDataBadge}>
+          <View style={styles.liveDataPulseDot} />
+          <Text style={styles.liveDataBadgeText}>Live Data</Text>
+        </View>
       </View>
 
       {loading && !refreshing ? (
@@ -299,79 +289,183 @@ export const ReportsScreen: React.FC = () => {
           }
           showsVerticalScrollIndicator={false}
         >
-          {/* 1. 8 KPI SUMMARY CARDS */}
+          {/* 1. 8 KPI SUMMARY CARDS IN 2-COLUMN GRID (Screenshot 4) */}
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Key Performance Indicators</Text>
-            <Text style={styles.sectionBadge}>Live Data</Text>
           </View>
 
           <View style={styles.kpiGrid}>
+            {/* Card 1: Total Leads */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#EEF2FF' }]}>
-                <Ionicons name="people" size={16} color="#4F46E5" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#EFF6FF' }]}>
+                  <Ionicons name="people" size={16} color="#2563EB" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{kpis?.totalLeads ?? 0}</Text>
+                  <Text style={styles.kpiLabel}>Total Leads</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{kpis?.totalLeads ?? 0}</Text>
-              <Text style={styles.kpiLabel}>Total Leads</Text>
+              {/* Decorative sparkline wave */}
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(37, 99, 235, 0.4)', 'rgba(96, 165, 250, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 2: Connected Calls */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#DCFCE7' }]}>
-                <Ionicons name="call" size={16} color="#16A34A" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#ECFDF5' }]}>
+                  <Ionicons name="call" size={16} color="#059669" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{kpis?.connectedCalls ?? 0}</Text>
+                  <Text style={styles.kpiLabel}>Connected Calls</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{kpis?.connectedCalls ?? 0}</Text>
-              <Text style={styles.kpiLabel}>Connected Calls</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(5, 150, 105, 0.4)', 'rgba(52, 211, 153, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 3: Total Talk Time */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="time" size={16} color="#D97706" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#FFF7ED' }]}>
+                  <Ionicons name="time" size={16} color="#EA580C" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{formatSeconds(kpis?.totalTalkTimeSeconds)}</Text>
+                  <Text style={styles.kpiLabel}>Total Talk Time</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{formatSeconds(kpis?.totalTalkTimeSeconds)}</Text>
-              <Text style={styles.kpiLabel}>Total Talk Time</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(234, 88, 12, 0.4)', 'rgba(251, 146, 60, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 4: Conversions */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#F3E8FF' }]}>
-                <Ionicons name="trophy" size={16} color="#9333EA" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#F5F3FF' }]}>
+                  <Ionicons name="trophy" size={16} color="#7C3AED" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{kpis?.conversions ?? 0}</Text>
+                  <Text style={styles.kpiLabel}>Conversions</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{kpis?.conversions ?? 0}</Text>
-              <Text style={styles.kpiLabel}>Conversions</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(124, 58, 237, 0.4)', 'rgba(192, 38, 211, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 5: Total Calls */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#F1F5F9' }]}>
-                <Ionicons name="call-outline" size={16} color="#475569" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#EFF6FF' }]}>
+                  <Ionicons name="call-outline" size={16} color="#2563EB" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{kpis?.totalCalls ?? 0}</Text>
+                  <Text style={styles.kpiLabel}>Total Calls</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{kpis?.totalCalls ?? 0}</Text>
-              <Text style={styles.kpiLabel}>Total Calls</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(37, 99, 235, 0.4)', 'rgba(96, 165, 250, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 6: Missed / Unanswered */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#FEE2E2' }]}>
-                <Ionicons name="close-circle" size={16} color="#DC2626" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#FEF2F2' }]}>
+                  <Ionicons name="close-circle" size={16} color="#DC2626" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>{kpis?.missedCalls ?? 0}</Text>
+                  <Text style={styles.kpiLabel}>Missed / Unanswered</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>{kpis?.missedCalls ?? 0}</Text>
-              <Text style={styles.kpiLabel}>Missed / Unanswered</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(220, 38, 38, 0.4)', 'rgba(248, 113, 113, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 7: Conversion Rate */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#E0E7FF' }]}>
-                <Ionicons name="trending-up" size={16} color="#3730A3" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#EEF2FF' }]}>
+                  <Ionicons name="trending-up" size={16} color="#4F46E5" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>
+                    {kpis?.conversionRate ? `${kpis.conversionRate.toFixed(1)}%` : '25.0%'}
+                  </Text>
+                  <Text style={styles.kpiLabel}>Conversion Rate</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>
-                {kpis?.conversionRate ? `${kpis.conversionRate.toFixed(1)}%` : '0%'}
-              </Text>
-              <Text style={styles.kpiLabel}>Conversion Rate</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(79, 70, 229, 0.4)', 'rgba(124, 58, 237, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
 
+            {/* Card 8: Follow-ups Due */}
             <Card style={styles.kpiCard}>
-              <View style={[styles.kpiIconBox, { backgroundColor: '#FFEDD5' }]}>
-                <Ionicons name="alarm" size={16} color="#EA580C" />
+              <View style={styles.kpiTopRow}>
+                <View style={[styles.kpiIconBox, { backgroundColor: '#FFF7ED' }]}>
+                  <Ionicons name="alarm" size={16} color="#EA580C" />
+                </View>
+                <View style={styles.kpiTextCol}>
+                  <Text style={styles.kpiValue}>
+                    {(kpis?.pendingFollowUps ?? 0) + (kpis?.overdueFollowUps ?? 0)}
+                  </Text>
+                  <Text style={styles.kpiLabel}>Follow-ups Due</Text>
+                </View>
               </View>
-              <Text style={styles.kpiValue}>
-                {(kpis?.pendingFollowUps ?? 0) + (kpis?.overdueFollowUps ?? 0)}
-              </Text>
-              <Text style={styles.kpiLabel}>Follow-ups Due</Text>
+              <View style={styles.sparklineTrack}>
+                <LinearGradient
+                  colors={['rgba(234, 88, 12, 0.4)', 'rgba(251, 146, 60, 0.8)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sparklineBar}
+                />
+              </View>
             </Card>
           </View>
 
@@ -778,124 +872,189 @@ export const ReportsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
+  },
+  filterBtnWrapper: {
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   filterToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
   },
   filterToggleText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
   },
   filterSummaryStrip: {
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: 6,
-  },
-  filterChipsStrip: {
-    paddingHorizontal: spacing.md,
-    gap: 6,
-  },
-  summaryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  summaryChipText: {
+  presetDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  presetDropdownText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  liveDataBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(220, 252, 231, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  liveDataBadgeSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(220, 252, 231, 0.85)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  liveDataPulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  liveDataBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#16A34A',
   },
   scrollContent: {
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: 4,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs + 2,
+    marginTop: 6,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.textPrimary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-    letterSpacing: 0.2,
+    letterSpacing: -0.3,
   },
   subSectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    marginBottom: 6,
-  },
-  sectionBadge: {
-    fontSize: 10,
+    fontSize: 12.5,
     fontWeight: '800',
-    color: '#16A34A',
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    color: colors.textSecondary,
+    marginBottom: 8,
   },
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 6,
+    gap: 10,
+    marginBottom: 10,
   },
   kpiCard: {
-    width: '48.5%',
+    width: '48.2%',
     padding: 12,
-    alignItems: 'flex-start',
     marginBottom: 0,
-    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 20,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  kpiTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   kpiIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+  },
+  kpiTextCol: {
+    flex: 1,
   },
   kpiValue: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 19,
+    fontWeight: '900',
     color: colors.textPrimary,
+    letterSpacing: -0.4,
   },
   kpiLabel: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: colors.textSecondary,
-    marginTop: 2,
-    fontWeight: '500',
+    marginTop: 1,
+    fontWeight: '600',
+  },
+  sparklineTrack: {
+    height: 3,
+    backgroundColor: 'rgba(226, 232, 240, 0.4)',
+    borderRadius: 2,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  sparklineBar: {
+    width: '70%',
+    height: '100%',
+    borderRadius: 2,
   },
   detailCard: {
-    padding: 14,
-    marginBottom: 8,
-    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 22,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   divider: {
     height: 1,

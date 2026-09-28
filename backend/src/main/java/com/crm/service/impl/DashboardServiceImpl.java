@@ -38,7 +38,14 @@ public class DashboardServiceImpl implements DashboardService {
     @Transactional(readOnly = true)
     public DashboardSummaryResponse getAdminDashboardSummary() {
         long totalUsers = userRepository.count();
-        long activeUsers = userRepository.findByStatus("ACTIVE").size();
+        List<com.crm.model.User> activeUserList = userRepository.findByStatus("ACTIVE");
+        long activeUsers = activeUserList.size();
+        long activeAgents = activeUserList.stream()
+                .filter(u -> u.getRole() != null && ("ROLE_USER".equalsIgnoreCase(u.getRole().getName()) || "USER".equalsIgnoreCase(u.getRole().getName())))
+                .count();
+        if (activeAgents == 0 && activeUsers > 0) {
+            activeAgents = activeUsers;
+        }
         long totalProjects = projectRepository.count();
         long activeProjects = projectRepository.countByStatus("ACTIVE");
         long totalLeads = leadRepository.count();
@@ -85,6 +92,7 @@ public class DashboardServiceImpl implements DashboardService {
         return DashboardSummaryResponse.builder()
                 .totalUsers(totalUsers)
                 .activeUsers(activeUsers)
+                .activeAgents(activeAgents)
                 .totalProjects(totalProjects)
                 .activeProjects(activeProjects)
                 .totalLeads(totalLeads)

@@ -161,6 +161,7 @@ export interface Call {
   endedAt?: string;
   durationSeconds: number;
   formattedDuration?: string;
+  isConnected?: boolean;
   callStatus: string; // 'CONNECTED' | 'MISSED' | 'NO_ANSWER' | 'BUSY' | 'FAILED' | 'REJECTED' | 'CANCELLED'
   businessOutcome?: string;
   automaticClassification?: string;
@@ -185,6 +186,7 @@ export interface CallEventPayload {
   callDirection?: string;
   timestamp?: string;
   durationSeconds?: number;
+  isConnected?: boolean;
   technicalStatus?: string;
   businessClassification?: string;
   notes?: string;
@@ -194,7 +196,7 @@ export interface CallEventPayload {
 }
 
 export interface LeadTimelineItem {
-  type: 'CALL' | 'FOLLOW_UP' | 'NOTE' | 'STATUS_CHANGE';
+  type: 'CALL' | 'FOLLOW_UP' | 'NOTE' | 'STATUS_CHANGE' | 'ASSIGNMENT' | 'CONVERT' | 'LEAD_CREATED' | 'AUDIT' | string;
   id: number;
   leadId: number;
   userId?: number;
@@ -465,6 +467,9 @@ export type RootStackParamList = {
   Login: undefined;
   Main: undefined;
   LeadDetails: { leadId: number; leadName?: string };
+  LeadTimeline: { leadId: number; leadName?: string };
+  LeadFollowUps: { leadId: number; leadName?: string };
+  LeadAssignments: { leadId: number; leadName?: string };
   AttendanceHistory: { userId?: number; userName?: string } | undefined;
   CallLogs: {
     initialTab?: string;
@@ -476,6 +481,14 @@ export type RootStackParamList = {
     endDate?: string;
     filterTitle?: string;
   } | undefined;
+  CallHistoryDetail: {
+    callId?: number;
+    phoneNumber?: string;
+    leadId?: number;
+    leadName?: string;
+    groupedLog?: any;
+    call?: any;
+  };
   Sales: undefined;
   ConvertedLeads: undefined;
   AdminProjects: undefined;
@@ -487,6 +500,7 @@ export type RootStackParamList = {
   FollowUps: { period?: 'overdue' | 'today' | 'upcoming' | 'completed' };
   Settings: undefined;
   Notifications: undefined;
+  Analytics: undefined;
 };
 
 export type MainTabParamList = {

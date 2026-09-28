@@ -28,7 +28,6 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
-    private final com.crm.repository.AdminAccessRequestRepository adminAccessRequestRepository;
     private final com.crm.repository.UserRepository userRepository;
 
     @GetMapping
@@ -84,86 +83,7 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<String>> deleteUser(@PathVariable Long id,
                                                          @CurrentUser UserPrincipal principal) {
-        userService.deleteUser(id, principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok("User deleted successfully", null));
-    }
-
-    @PostMapping("/request-admin-access")
-    @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
-    public ResponseEntity<ApiResponse<com.crm.dto.response.AdminAccessRequestResponse>> requestAdminAccess(
-            @CurrentUser UserPrincipal principal,
-            @RequestBody(required = false) com.crm.dto.request.AdminAccessRequestDto requestDto) {
-
-        if (principal.isAdmin()) {
-            return ResponseEntity.ok(ApiResponse.ok("User is already an Administrator",
-                    com.crm.dto.response.AdminAccessRequestResponse.builder()
-                            .userId(principal.getId())
-                            .userName(principal.getName())
-                            .status("APPROVED")
-                            .build()));
-        }
-
-        boolean hasPending = adminAccessRequestRepository.existsByUserIdAndStatus(principal.getId(), "PENDING");
-        if (hasPending) {
-            com.crm.model.AdminAccessRequest existing = adminAccessRequestRepository
-                    .findTopByUserIdOrderByRequestedAtDesc(principal.getId()).orElse(null);
-            return ResponseEntity.ok(ApiResponse.ok("You already have a pending request for Admin access",
-                    toAdminAccessResponse(existing)));
-        }
-
-        com.crm.model.User user = userRepository.findById(principal.getId())
-                .orElseThrow(() -> new com.crm.exception.ResourceNotFoundException("User not found"));
-
-        com.crm.model.AdminAccessRequest req = com.crm.model.AdminAccessRequest.builder()
-                .user(user)
-                .status("PENDING")
-                .reason(requestDto != null && requestDto.getReason() != null ? requestDto.getReason() : "User requested Admin access from mobile settings")
-                .build();
-
-        com.crm.model.AdminAccessRequest saved = adminAccessRequestRepository.save(req);
-        return ResponseEntity.ok(ApiResponse.ok("Admin access requested successfully. Waiting for administrator review.",
-                toAdminAccessResponse(saved)));
-    }
-
-    @GetMapping("/admin-access-status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
-    public ResponseEntity<ApiResponse<com.crm.dto.response.AdminAccessRequestResponse>> getAdminAccessStatus(
-            @CurrentUser UserPrincipal principal) {
-        if (principal.isAdmin()) {
-            return ResponseEntity.ok(ApiResponse.ok(com.crm.dto.response.AdminAccessRequestResponse.builder()
-                    .userId(principal.getId())
-                    .userName(principal.getName())
-                    .status("APPROVED")
-                    .build()));
-        }
-
-        com.crm.model.AdminAccessRequest req = adminAccessRequestRepository
-                .findTopByUserIdOrderByRequestedAtDesc(principal.getId())
-                .orElse(null);
-
-        if (req == null) {
-            return ResponseEntity.ok(ApiResponse.ok(com.crm.dto.response.AdminAccessRequestResponse.builder()
-                    .userId(principal.getId())
-                    .userName(principal.getName())
-                    .status("NOT_REQUESTED")
-                    .build()));
-        }
-
-        return ResponseEntity.ok(ApiResponse.ok(toAdminAccessResponse(req)));
-    }
-
-    private com.crm.dto.response.AdminAccessRequestResponse toAdminAccessResponse(com.crm.model.AdminAccessRequest req) {
-        if (req == null) return null;
-        return com.crm.dto.response.AdminAccessRequestResponse.builder()
-                .id(req.getId())
-                .userId(req.getUser() != null ? req.getUser().getId() : null)
-                .userName(req.getUser() != null ? req.getUser().getName() : null)
-                .userEmail(req.getUser() != null ? req.getUser().getEmail() : null)
-                .status(req.getStatus())
-                .reason(req.getReason())
-                .requestedAt(req.getRequestedAt())
-                .reviewedAt(req.getReviewedAt())
-                .adminNotes(req.getAdminNotes())
-                .build();
+        String msg = userService.deleteUser(id, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(msg, msg));
     }
 }

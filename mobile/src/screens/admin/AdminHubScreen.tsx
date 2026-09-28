@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,19 +10,29 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { MeqHeader } from '../../components/common/MeqHeader';
 import { IconTile } from '../../components/common/IconTile';
+import { AnimatedCard } from '../../components/common/AnimatedCard';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../types';
 
 export const AdminHubScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { user, logout } = useAuth();
+  const [animKey, setAnimKey] = useState<number>(0);
+
+  useEffect(() => {
+    if (isFocused) {
+      setAnimKey((prev: number) => prev + 1);
+    }
+  }, [isFocused]);
 
   const executeLogout = async () => {
     try {
@@ -95,7 +105,7 @@ export const AdminHubScreen: React.FC = () => {
           title: 'Follow-ups Console',
           subtitle: 'Review team callback promises & schedules',
           icon: 'calendar-outline',
-          variant: 'blue' as const,
+          variant: 'pink' as const,
           onPress: () => navigation.navigate('FollowUps', {}),
         },
         {
@@ -142,109 +152,223 @@ export const AdminHubScreen: React.FC = () => {
     },
   ];
 
-  return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      <MeqHeader
-        showLogo={false}
-        title="Admin Hub"
-        subtitle={`Welcome, ${user?.name || 'Administrator'} (Role: ${user?.role || 'ADMIN'})`}
-      />
+  const sectionIcons: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }> = {
+    'Management & Control': {
+      icon: 'radio-button-on',
+      color: '#3B82F6',
+      bg: 'rgba(59, 130, 246, 0.15)',
+    },
+    'Intelligence & Operations': {
+      icon: 'bar-chart',
+      color: '#7C3AED',
+      bg: 'rgba(124, 58, 237, 0.15)',
+    },
+    'Preferences & Session': {
+      icon: 'settings',
+      color: '#6366F1',
+      bg: 'rgba(99, 102, 241, 0.15)',
+    },
+  };
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {menuSections.map((sec, secIdx) => (
-          <View key={secIdx} style={styles.section}>
-            <Text style={styles.sectionTitle}>{sec.title}</Text>
-            <View style={styles.menuCard}>
-              {sec.items.map((item, itemIdx) => (
-                <TouchableOpacity
-                  key={itemIdx}
-                  style={[
-                    styles.menuRow,
-                    itemIdx < sec.items.length - 1 && styles.menuRowBorder,
-                  ]}
-                  onPress={item.onPress}
-                  activeOpacity={0.7}
-                >
-                  <IconTile
-                    name={item.icon}
-                    variant={item.variant}
-                    size={38}
-                    iconSize={18}
-                  />
-                  <View style={styles.menuInfo}>
-                    <Text style={styles.menuTitle}>{item.title}</Text>
-                    <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </TouchableOpacity>
-              ))}
+  return (
+    <AmbientBackground variant="admin">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+        {/* Custom Header matching Screenshot 1 */}
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextCol}>
+            <View style={styles.titleRow}>
+              <Text style={styles.headerTitleDark}>Admin </Text>
+              <Text style={styles.headerTitlePurple}>Hub</Text>
             </View>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              Welcome, {user?.name || 'System Administrator'} (Role: {user?.role || 'ROLE_ADMIN'})
+            </Text>
           </View>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => navigation.navigate('Settings')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="settings-sharp" size={20} color="#6366F1" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          key={animKey}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {menuSections.map((sec, secIdx) => {
+            const secMeta = sectionIcons[sec.title] || {
+              icon: 'apps',
+              color: '#4F46E5',
+              bg: 'rgba(79, 70, 229, 0.12)',
+            };
+
+            return (
+              <AnimatedCard key={secIdx} delay={60 + secIdx * 100} style={styles.section}>
+                {/* Section Header with Glowing Pill Badge */}
+                <View style={styles.sectionHeaderRow}>
+                  <View style={[styles.sectionIconBadge, { backgroundColor: secMeta.bg }]}>
+                    <Ionicons name={secMeta.icon} size={13} color={secMeta.color} />
+                  </View>
+                  <Text style={styles.sectionTitle}>{sec.title}</Text>
+                </View>
+
+                {/* Glassmorphic Menu Card */}
+                <View style={styles.menuCard}>
+                  {sec.items.map((item, itemIdx) => (
+                    <TouchableOpacity
+                      key={itemIdx}
+                      style={[
+                        styles.menuRow,
+                        itemIdx < sec.items.length - 1 && styles.menuRowBorder,
+                      ]}
+                      onPress={item.onPress}
+                      activeOpacity={0.7}
+                    >
+                      <IconTile
+                        name={item.icon}
+                        variant={item.variant}
+                        size={42}
+                        iconSize={20}
+                      />
+                      <View style={styles.menuInfo}>
+                        <Text style={styles.menuTitle}>{item.title}</Text>
+                        <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="#818CF8" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </AnimatedCard>
+            );
+          })}
+        </ScrollView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  headerTextCol: {
+    flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitleDark: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.6,
+  },
+  headerTitlePurple: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#7C3AED',
+    letterSpacing: -0.6,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 3,
+    fontWeight: '500',
+  },
+  settingsButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
   },
   scrollContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xs,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   section: {
-    marginBottom: spacing.sm + 2,
+    marginBottom: 18,
   },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6B7280',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: spacing.xs + 2,
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
     marginLeft: 4,
   },
+  sectionIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6366F1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
   menuCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 231, 235, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.95)',
     overflow: 'hidden',
-    shadowColor: '#111827',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    elevation: 3,
   },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: spacing.md,
-    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 14,
   },
   menuRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: 'rgba(241, 245, 249, 0.85)',
   },
   menuInfo: {
     flex: 1,
   },
   menuTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.3,
   },
   menuSubtitle: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2.5,
+    fontWeight: '500',
   },
 });
 

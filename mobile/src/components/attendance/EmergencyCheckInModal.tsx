@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,14 @@ import {
   ActivityIndicator,
   Animated,
   StatusBar,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { attendanceApi } from '../../api/attendanceApi';
-import { colors } from '../../theme/colors';
 import { startMobileEmergencyAlarm, stopMobileEmergencyAlarm } from '../../utils/alarmSound';
+import { attendanceEventManager } from '../../utils/attendanceEvents';
 
 export const EmergencyCheckInModal: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -25,9 +27,10 @@ export const EmergencyCheckInModal: React.FC = () => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const checkIntervalRef = useRef<any>(null);
   const clockIntervalRef = useRef<any>(null);
+  const snoozeTimeoutRef = useRef<any>(null);
 
-  const shiftDisplayName = user?.shiftDisplayName || '10:00 AM – 07:00 PM';
-  const shiftStartTime = user?.shiftStartTime || '10:00:00';
+  const shiftDisplayName = user?.shiftDisplayName || '09:00 AM – 06:00 PM';
+  const shiftStartTime = user?.shiftStartTime || '09:00:00';
 
   // Pulse animation loop
   useEffect(() => {
@@ -51,27 +54,36 @@ export const EmergencyCheckInModal: React.FC = () => {
     }
   }, [isOverdue, pulseAnim]);
 
-  const checkAttendance = async () => {
+  const checkAttendance = useCallback(async () => {
     if (!isAuthenticated || !user) return;
+
+    // 1. If currently snoozed via "Skip for Now", suppress the alert until snooze expires
+    if (attendanceEventManager.isSnoozed()) {
+      setIsOverdue(false);
+      stopMobileEmergencyAlarm();
+      return;
+    }
+
     try {
       const today = await attendanceApi.getTodayAttendance();
       if (!today) return;
 
-      // If user is already clocked in or clocked out, no alert is needed
-      if (today.clockedIn || today.clockedOut) {
+      // 2. If user is already clocked in or clocked out, no alert is needed
+      if (today.clockedIn || today.clockedOut || today.clockInTime) {
         setIsOverdue(false);
         stopMobileEmergencyAlarm();
+        attendanceEventManager.clearSnooze();
         return;
       }
 
-      // Check if current time is past shift start time
+      // 3. Check if current time is past shift start time
       const now = new Date();
       const [startHours, startMinutes] = shiftStartTime.split(':').map(Number);
       const shiftStartDate = new Date();
-      shiftStartDate.setHours(startHours || 10, startMinutes || 0, 0, 0);
+      shiftStartDate.setHours(startHours || 9, startMinutes || 0, 0, 0);
 
       const isPastShiftStart = now.getTime() >= shiftStartDate.getTime();
-      const shouldAlert = !today.clockedIn && !today.clockedOut && isPastShiftStart;
+      const shouldAlert = !today.clockedIn && !today.clockedOut && !today.clockInTime && isPastShiftStart;
 
       setIsOverdue(shouldAlert);
       if (shouldAlert) {
@@ -82,28 +94,66 @@ export const EmergencyCheckInModal: React.FC = () => {
     } catch (e) {
       console.warn('Error checking attendance in EmergencyCheckInModal:', e);
     }
-  };
+  }, [isAuthenticated, user?.id, shiftStartTime]);
+
+  const checkAttendanceRef = useRef(checkAttendance);
+  useEffect(() => {
+    checkAttendanceRef.current = checkAttendance;
+  });
+
+  // Subscribe to external attendance updates (e.g. if user clocked in from HomeScreen)
+  useEffect(() => {
+    const unsubscribe = attendanceEventManager.subscribe((latestAtt) => {
+      if (latestAtt?.clockedIn || latestAtt?.clockedOut || latestAtt?.clockInTime) {
+        setIsOverdue(false);
+        stopMobileEmergencyAlarm();
+        attendanceEventManager.clearSnooze();
+        if (snoozeTimeoutRef.current) {
+          clearTimeout(snoozeTimeoutRef.current);
+          snoozeTimeoutRef.current = null;
+        }
+      }
+    });
+
+    const unsubscribeRefresh = attendanceEventManager.onRefreshRequested(() => {
+      checkAttendanceRef.current();
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeRefresh();
+    };
+  }, []);
 
   useEffect(() => {
     // Initial check
-    checkAttendance();
+    checkAttendanceRef.current();
 
     // Clock ticker every second
     clockIntervalRef.current = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
 
-    // 5-minute repeating check interval (300,000 ms)
+    // Periodic repeating attendance check every 60 seconds
     checkIntervalRef.current = setInterval(() => {
-      checkAttendance();
-    }, 300000);
+      checkAttendanceRef.current();
+    }, 60000);
+
+    // Listen to AppState (foreground/background transitions)
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        checkAttendanceRef.current();
+      }
+    });
 
     return () => {
       stopMobileEmergencyAlarm();
       if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
       if (clockIntervalRef.current) clearInterval(clockIntervalRef.current);
+      if (snoozeTimeoutRef.current) clearTimeout(snoozeTimeoutRef.current);
+      subscription.remove();
     };
-  }, [isAuthenticated, user, shiftStartTime]);
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (isOverdue) {
@@ -116,21 +166,51 @@ export const EmergencyCheckInModal: React.FC = () => {
     };
   }, [isOverdue]);
 
+  // Handle Clock In Action from the Alarm modal
   const handleClockIn = async () => {
     setError(null);
     setSubmitting(true);
     stopMobileEmergencyAlarm();
     try {
-      await attendanceApi.clockIn();
+      const updated = await attendanceApi.clockIn();
+
+      // Immediately broadcast the updated attendance state globally
+      attendanceEventManager.setLatestAttendance(updated);
+      attendanceEventManager.clearSnooze();
+
+      if (snoozeTimeoutRef.current) {
+        clearTimeout(snoozeTimeoutRef.current);
+        snoozeTimeoutRef.current = null;
+      }
+
       setIsOverdue(false);
       stopMobileEmergencyAlarm();
-      await checkAttendance();
     } catch (err: any) {
       setError(err.message || 'Unable to record check-in. Please try again.');
       startMobileEmergencyAlarm();
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Handle "Skip for Now" Action (Snoozes the alarm for exactly 5 minutes)
+  const handleSkip = () => {
+    stopMobileEmergencyAlarm();
+    setIsOverdue(false);
+    setError(null);
+
+    // Set 5-minute snooze in the global manager
+    attendanceEventManager.snoozeAlarm(5);
+
+    // Schedule next alarm check for exactly 5 minutes later (300,000 ms)
+    if (snoozeTimeoutRef.current) {
+      clearTimeout(snoozeTimeoutRef.current);
+    }
+
+    snoozeTimeoutRef.current = setTimeout(() => {
+      attendanceEventManager.clearSnooze();
+      checkAttendance();
+    }, 5 * 60 * 1000);
   };
 
   if (!isOverdue) {
@@ -151,7 +231,7 @@ export const EmergencyCheckInModal: React.FC = () => {
       animationType="fade"
       statusBarTranslucent
     >
-      <StatusBar barStyle="light-content" backgroundColor="#1a0406" />
+      <StatusBar barStyle="light-content" backgroundColor="#120204" />
       <View style={styles.container}>
         {/* Glow backdrop circle */}
         <View style={styles.glowCircle} />
@@ -197,7 +277,7 @@ export const EmergencyCheckInModal: React.FC = () => {
           </View>
         </View>
 
-        {/* Check In Action Button */}
+        {/* Button 1: Check In Action Button */}
         <TouchableOpacity
           style={[styles.checkInBtn, submitting && styles.checkInBtnDisabled]}
           onPress={handleClockIn}
@@ -215,6 +295,19 @@ export const EmergencyCheckInModal: React.FC = () => {
               <Text style={styles.checkInBtnText}>CHECK IN NOW</Text>
             </View>
           )}
+        </TouchableOpacity>
+
+        {/* Button 2: Skip for Now Action Button */}
+        <TouchableOpacity
+          style={styles.skipBtn}
+          onPress={handleSkip}
+          disabled={submitting}
+          activeOpacity={0.85}
+        >
+          <View style={styles.loadingRow}>
+            <Ionicons name="play-forward" size={18} color="#EF4444" style={{ marginRight: 2 }} />
+            <Text style={styles.skipBtnText}>SKIP FOR NOW</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -304,7 +397,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 28,
+    marginBottom: 26,
   },
   infoCol: {
     flex: 1,
@@ -349,19 +442,37 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 16,
     elevation: 8,
+    marginBottom: 14,
   },
   checkInBtnDisabled: {
     opacity: 0.7,
   },
+  skipBtn: {
+    width: '100%',
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#120204',
+    borderWidth: 1.5,
+    borderColor: 'rgba(239, 68, 68, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   checkInBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  skipBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
     letterSpacing: 0.6,
   },
 });

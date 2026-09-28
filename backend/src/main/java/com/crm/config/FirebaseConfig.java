@@ -19,7 +19,7 @@ public class FirebaseConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(FirebaseConfig.class);
 
-    @Value("${firebase.project-id:crmcalling-60005}")
+    @Value("${firebase.project-id:callingcrm-9c9fd}")
     private String projectId;
 
     @Value("${firebase.credentials-file:}")

@@ -46,11 +46,11 @@ export const DialPad: React.FC<DialPadProps> = ({
   const insets = useSafeAreaInsets();
 
   // Responsive button and spacing calculations for any screen width
-  const maxDialWidth = Math.min(windowWidth - 32, 320);
-  const gap = windowWidth < 360 ? 14 : 20;
+  const maxDialWidth = Math.min(windowWidth - 28, 340);
+  const gap = windowWidth < 360 ? 16 : 22;
   const rawSize = Math.floor((maxDialWidth - (2 * gap) - 16) / 3);
-  const buttonSize = Math.max(58, Math.min(rawSize, 72));
-  const rowMarginVertical = windowHeight < 700 ? 4 : 6;
+  const buttonSize = Math.max(68, Math.min(rawSize, 80));
+  const rowMarginVertical = windowHeight < 700 ? 5 : 7;
 
   useEffect(() => {
     if (initialNumber) {
@@ -124,7 +124,7 @@ export const DialPad: React.FC<DialPadProps> = ({
   };
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 28) + 16 }]}>
       {/* Number Display Bar */}
       <View style={styles.displayContainer}>
         <Text
@@ -207,7 +207,7 @@ export const DialPad: React.FC<DialPadProps> = ({
                 onLongPress={btn === '0' ? handleLongPressZero : undefined}
                 activeOpacity={0.65}
               >
-                <Text style={[styles.padDigit, { fontSize: buttonSize >= 68 ? 26 : 22 }]}>
+                <Text style={[styles.padDigit, { fontSize: buttonSize >= 68 ? 28 : 24 }]}>
                   {btn}
                 </Text>
               </TouchableOpacity>
@@ -233,7 +233,7 @@ export const DialPad: React.FC<DialPadProps> = ({
             onPress={handleCall}
             activeOpacity={0.85}
           >
-            <Ionicons name="call" size={buttonSize >= 68 ? 30 : 26} color="#ffffff" />
+            <Ionicons name="call" size={buttonSize >= 68 ? 32 : 28} color="#ffffff" />
           </TouchableOpacity>
 
           {/* Column 3: Delete / Backspace Button */}
@@ -255,7 +255,7 @@ export const DialPad: React.FC<DialPadProps> = ({
               >
                 <Ionicons
                   name="backspace-outline"
-                  size={buttonSize >= 68 ? 28 : 24}
+                  size={buttonSize >= 68 ? 30 : 26}
                   color={colors.textSecondary}
                 />
               </TouchableOpacity>
@@ -278,13 +278,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 56,
+    height: 60,
     width: '100%',
     paddingHorizontal: spacing.md,
     marginBottom: spacing.xs,
   },
   numberText: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '700',
     color: colors.textPrimary,
     letterSpacing: 1.2,
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   numberTextSmall: {
-    fontSize: 22,
+    fontSize: 24,
   },
   backspaceButton: {
     position: 'absolute',

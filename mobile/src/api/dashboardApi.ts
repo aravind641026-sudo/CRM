@@ -8,7 +8,11 @@ export const dashboardApi = {
   },
 
   getAdminDashboard: async (): Promise<AdminDashboardSummary> => {
-    const res = await apiClient.get<ApiResponse<AdminDashboardSummary>>('/dashboard/admin');
-    return res.data.data;
+    const res = await apiClient.get<ApiResponse<any>>('/dashboard/admin');
+    const data = res.data.data;
+    return {
+      ...data,
+      activeAgents: data?.activeAgents ?? data?.activeUsers ?? 0,
+    };
   },
 };

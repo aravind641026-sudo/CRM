@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,40 +7,247 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
+  Animated,
+  Easing,
   useWindowDimensions,
+  Alert,
+  TextInput,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../theme/colors';
-import { spacing } from '../../theme/spacing';
-import { Card } from '../../components/common/Card';
-import { Input } from '../../components/common/Input';
-import { Button } from '../../components/common/Button';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../types';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getApiBaseUrl, setApiBaseUrl } from '../../api/client';
-import { API_BASE_URL, STORAGE_KEYS } from '../../config/constants';
-import { Modal, Alert } from 'react-native';
-import { FormModal } from '../../components/common/FormModal';
 
 export const LoginScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { height: screenHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Server configuration
-  const [activeServerUrl, setActiveServerUrl] = useState(getApiBaseUrl());
-  const [showServerModal, setShowServerModal] = useState(false);
-  const [customUrlInput, setCustomUrlInput] = useState(getApiBaseUrl());
+  // Focused state for input border highlight
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+
+  // Input Refs for instant tap-to-focus on entire input box container
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+
+  // 1. Top Wave slow drift animation (24s cycle)
+  const topWaveTranslateX = useRef(new Animated.Value(0)).current;
+  const topWaveTranslateY = useRef(new Animated.Value(0)).current;
+
+  // 2. Bottom Wave slow undulating flow (28s cycle)
+  const bottomWaveTranslateX = useRef(new Animated.Value(0)).current;
+  const bottomWaveTranslateY = useRef(new Animated.Value(0)).current;
+
+  // 3. Floating particles individual breathing/floating animations
+  const floatAnim1 = useRef(new Animated.Value(0)).current; // Top-left cyan ring
+  const floatAnim2 = useRef(new Animated.Value(0)).current; // Mid-left pink dot
+  const floatAnim3 = useRef(new Animated.Value(0)).current; // Top-right blue sphere
+  const floatAnim4 = useRef(new Animated.Value(0)).current; // Mid-right purple orb
+  const floatAnim5 = useRef(new Animated.Value(0)).current; // Bottom-left blue ring
+  const floatAnim6 = useRef(new Animated.Value(0)).current; // Bottom-right pink dot
+
+  // 4. Dot matrix opacity pulse
+  const dotMatrixPulse = useRef(new Animated.Value(0.5)).current;
+
+  // 5. Logo halo glow pulse (4.5s cycle)
+  const logoPulse = useRef(new Animated.Value(1)).current;
+  const logoGlowOpacity = useRef(new Animated.Value(0.4)).current;
+
+  // 6. Sign In button subtle shimmer sweep
+  const btnShimmerTranslate = useRef(new Animated.Value(-160)).current;
+
+  useEffect(() => {
+    // Top Wave Loop (smooth back & forth drift)
+    const topWaveLoop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(topWaveTranslateX, {
+            toValue: 18,
+            duration: 12000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(topWaveTranslateY, {
+            toValue: -10,
+            duration: 12000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(topWaveTranslateX, {
+            toValue: -15,
+            duration: 12000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(topWaveTranslateY, {
+            toValue: 8,
+            duration: 12000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    // Bottom Wave Loop (smooth undulating flow)
+    const bottomWaveLoop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(bottomWaveTranslateX, {
+            toValue: -22,
+            duration: 14000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(bottomWaveTranslateY, {
+            toValue: -12,
+            duration: 14000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(bottomWaveTranslateX, {
+            toValue: 18,
+            duration: 14000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(bottomWaveTranslateY, {
+            toValue: 10,
+            duration: 14000,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    // Floating Particle 1 (cyan ring: 6s cycle)
+    const p1Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim1, { toValue: -8, duration: 3200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim1, { toValue: 8, duration: 3200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Floating Particle 2 (pink dot: 5s cycle)
+    const p2Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim2, { toValue: 6, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim2, { toValue: -6, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Floating Particle 3 (blue sphere: 7s cycle)
+    const p3Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim3, { toValue: -7, duration: 3500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim3, { toValue: 7, duration: 3500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Floating Particle 4 (purple orb: 8s cycle)
+    const p4Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim4, { toValue: 9, duration: 4000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim4, { toValue: -9, duration: 4000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Floating Particle 5 (bottom blue ring: 6.5s cycle)
+    const p5Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim5, { toValue: -8, duration: 3250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim5, { toValue: 8, duration: 3250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Floating Particle 6 (bottom pink dot: 4.5s cycle)
+    const p6Loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim6, { toValue: 5, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatAnim6, { toValue: -5, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Dot Matrix Pulse (5s cycle)
+    const matrixLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dotMatrixPulse, { toValue: 0.9, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(dotMatrixPulse, { toValue: 0.4, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    // Logo Ambient Halo Breathing Pulse (4.5s cycle)
+    const logoLoop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(logoPulse, { toValue: 1.08, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoGlowOpacity, { toValue: 0.7, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(logoPulse, { toValue: 0.96, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoGlowOpacity, { toValue: 0.35, duration: 2250, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+      ])
+    );
+
+    // Button Shimmer Sweep (8s cycle)
+    const btnShimmerLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(btnShimmerTranslate, {
+          toValue: 360,
+          duration: 1800,
+          easing: Easing.bezier(0.4, 0, 0.2, 1),
+          useNativeDriver: true,
+        }),
+        Animated.delay(6200),
+        Animated.timing(btnShimmerTranslate, {
+          toValue: -160,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    topWaveLoop.start();
+    bottomWaveLoop.start();
+    p1Loop.start();
+    p2Loop.start();
+    p3Loop.start();
+    p4Loop.start();
+    p5Loop.start();
+    p6Loop.start();
+    matrixLoop.start();
+    logoLoop.start();
+    btnShimmerLoop.start();
+
+    return () => {
+      topWaveLoop.stop();
+      bottomWaveLoop.stop();
+      p1Loop.stop();
+      p2Loop.stop();
+      p3Loop.stop();
+      p4Loop.stop();
+      p5Loop.stop();
+      p6Loop.stop();
+      matrixLoop.stop();
+      logoLoop.stop();
+      btnShimmerLoop.stop();
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -63,252 +270,698 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
-  const setDemoCredentials = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMessage('');
-  };
-
-  const handleSaveCustomUrl = async () => {
-    if (!customUrlInput.trim()) return;
-    try {
-      const trimmed = customUrlInput.trim().replace(/\/+$/, '');
-      const normalized = trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
-      setApiBaseUrl(normalized);
-      setActiveServerUrl(normalized);
-      await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_API_URL, normalized);
-      setShowServerModal(false);
-      Alert.alert('Server Connected', `Targeting: ${normalized}`);
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    }
-  };
-
-  const handleResetDefaultUrl = async () => {
-    try {
-      await AsyncStorage.removeItem(STORAGE_KEYS.CUSTOM_API_URL);
-      setApiBaseUrl(API_BASE_URL);
-      setActiveServerUrl(API_BASE_URL);
-      setCustomUrlInput(API_BASE_URL);
-      setShowServerModal(false);
-      Alert.alert('Reset', `Server URL reset to default: ${API_BASE_URL}`);
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    }
-  };
-
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header Branding */}
-        <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="call" size={30} color={colors.primary} />
-          </View>
-          <Text style={styles.title}>Calling CRM</Text>
-          <Text style={styles.subtitle}>Sign in to your account</Text>
-        </View>
-
-        {/* Form Card */}
-        <Card style={styles.card}>
-          {errorMessage ? (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={16} color={colors.danger} />
-              <Text style={styles.errorText}>{errorMessage}</Text>
-            </View>
-          ) : null}
-
-          <Input
-            label="Email Address"
-            placeholder="agent@crm.com"
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              setErrorMessage('');
-            }}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            leftIcon="mail-outline"
-          />
-
-          <Input
-            label="Password"
-            placeholder="••••••••"
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              setErrorMessage('');
-            }}
-            isPassword
-            leftIcon="lock-closed-outline"
-          />
-
-          <Button
-            title="Sign In"
-            onPress={handleLogin}
-            loading={loading}
-            style={styles.loginBtn}
-          />
-        </Card>
-
-        {/* Quick Demo Fill Buttons */}
-        <View style={styles.demoSection}>
-          <Text style={styles.demoTitle}>Quick Demo Sign In:</Text>
-          <View style={styles.demoBtnRow}>
-            <TouchableOpacity
-              style={styles.demoPill}
-              onPress={() => setDemoCredentials('admin@crm.com', 'admin123')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="shield-checkmark" size={14} color={colors.primary} />
-              <Text style={styles.demoPillText}>Admin Role</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.demoPill}
-              onPress={() => setDemoCredentials('agent2@crm.com', 'agent123')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="person" size={14} color={colors.success} />
-              <Text style={styles.demoPillText}>Sales User Role</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Server Indicator Pill */}
-        <TouchableOpacity
-          style={styles.serverPill}
-          onPress={() => {
-            setCustomUrlInput(activeServerUrl);
-            setShowServerModal(true);
-          }}
-          activeOpacity={0.7}
+    <View style={styles.screenRoot}>
+      {/* ========================================================================= */}
+      {/* 1. ISOLATED LIVE ANIMATED BACKGROUND (POINTER-EVENTS NONE)                */}
+      {/* ========================================================================= */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {/* Top-Left Animated Fluid Waves */}
+        <Animated.View
+          style={[
+            styles.topWaveLayer,
+            {
+              transform: [
+                { translateX: topWaveTranslateX },
+                { translateY: topWaveTranslateY },
+              ],
+            },
+          ]}
         >
-          <Ionicons name="server-outline" size={13} color={colors.textMuted} />
-          <Text style={styles.serverPillText} numberOfLines={1}>
-            Server: {activeServerUrl.replace(/\/api\/v1$/, '')}
-          </Text>
-          <Ionicons name="create-outline" size={13} color={colors.primary} />
-        </TouchableOpacity>
+          <LinearGradient
+            colors={['#38BDF8', '#6366F1', '#A855F7', '#E879F9', 'transparent']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.topWaveGradient1}
+          />
+          <LinearGradient
+            colors={['rgba(99, 102, 241, 0.45)', 'rgba(168, 85, 247, 0.35)', 'transparent']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.8, y: 1 }}
+            style={styles.topWaveGradient2}
+          />
+        </Animated.View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Enterprise Security & JWT Authentication
-          </Text>
+        {/* Top-Right Soft Lavender Ambient Aura */}
+        <View style={styles.topRightAura}>
+          <LinearGradient
+            colors={['rgba(216, 180, 254, 0.35)', 'rgba(244, 114, 182, 0.2)', 'transparent']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.auraFill}
+          />
         </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
 
-      {/* Server Config Modal */}
-      <FormModal
-        visible={showServerModal}
-        onClose={() => setShowServerModal(false)}
-        title="Backend Server URL"
-        onSave={handleSaveCustomUrl}
-        saveTitle="Save & Connect"
-        saveVariant="primary"
-        heightPercent={0.72}
-        maxHeightPixels={480}
-        customFooter={
-          <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
-            <View style={{ flex: 1 }}>
-              <Button
-                title="Reset Default"
-                variant="outline"
-                onPress={handleResetDefaultUrl}
-                style={{ width: '100%' }}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button
-                title="Save & Connect"
-                variant="primary"
-                onPress={handleSaveCustomUrl}
-                style={{ width: '100%' }}
-              />
-            </View>
-          </View>
-        }
-      >
-        <Text style={styles.modalSubtitle}>
-          Ensure your phone and PC are on the same Wi-Fi. Enter your computer's IP address:
-        </Text>
+        {/* Top-Right Decorative Dot Matrix (5x5 grid from reference) */}
+        <Animated.View style={[styles.dotMatrixGrid, { opacity: dotMatrixPulse }]}>
+          {Array.from({ length: 25 }).map((_, i) => (
+            <View key={i} style={styles.matrixDot} />
+          ))}
+        </Animated.View>
 
-        <Input
-          label="API URL"
-          value={customUrlInput}
-          onChangeText={setCustomUrlInput}
-          placeholder="http://192.168.1.43:8080"
-          autoCapitalize="none"
-          autoCorrect={false}
-          leftIcon="link-outline"
+        {/* Particle 1: Top-Left Cyan/Blue Ring */}
+        <Animated.View
+          style={[
+            styles.particleCyanRing,
+            { transform: [{ translateY: floatAnim1 }] },
+          ]}
         />
-      </FormModal>
-    </SafeAreaView>
+
+        {/* Particle 2: Satellite Dot (Cyan / Blue near top left) */}
+        <Animated.View
+          style={[
+            styles.particleCyanDot,
+            { transform: [{ translateY: floatAnim2 }] },
+          ]}
+        />
+
+        {/* Particle 3: Mid-Left Magenta Glowing Dot */}
+        <Animated.View
+          style={[
+            styles.particleMagentaDotLeft,
+            { transform: [{ translateY: floatAnim2 }] },
+          ]}
+        />
+
+        {/* Particle 4: Top-Right Solid Blue Sphere */}
+        <Animated.View
+          style={[
+            styles.particleBlueSphere,
+            { transform: [{ translateY: floatAnim3 }] },
+          ]}
+        />
+
+        {/* Particle 5: Mid-Right Pink Particle */}
+        <Animated.View
+          style={[
+            styles.particlePinkDotRight,
+            { transform: [{ translateY: floatAnim2 }] },
+          ]}
+        />
+
+        {/* Particle 6: Mid-Right Large Soft Purple Sphere */}
+        <Animated.View
+          style={[
+            styles.particlePurpleOrbRight,
+            { transform: [{ translateY: floatAnim4 }] },
+          ]}
+        />
+
+        {/* Particle 7: Bottom-Left Blue Ring */}
+        <Animated.View
+          style={[
+            styles.particleBottomBlueRing,
+            { transform: [{ translateY: floatAnim5 }] },
+          ]}
+        />
+
+        {/* Particle 8: Bottom Pink Particle near waves */}
+        <Animated.View
+          style={[
+            styles.particleBottomPinkDot,
+            { transform: [{ translateY: floatAnim6 }] },
+          ]}
+        />
+
+        {/* Bottom Flowing Multi-Layer Waves */}
+        <Animated.View
+          style={[
+            styles.bottomWaveLayer,
+            {
+              transform: [
+                { translateX: bottomWaveTranslateX },
+                { translateY: bottomWaveTranslateY },
+              ],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={['transparent', '#38BDF8', '#6366F1', '#A855F7', '#EC4899', '#F43F5E']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0.9 }}
+            style={styles.bottomWaveGradient1}
+          />
+          <LinearGradient
+            colors={['transparent', 'rgba(168, 85, 247, 0.4)', 'rgba(236, 72, 153, 0.5)', 'rgba(244, 63, 94, 0.35)']}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bottomWaveGradient2}
+          />
+        </Animated.View>
+      </View>
+
+      {/* ========================================================================= */}
+      {/* 2. FOREGROUND INTERACTIVE CONTENT                                         */}
+      {/* ========================================================================= */}
+      <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.keyboardContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Center Branding Area matching Reference Image */}
+            <View style={styles.brandingSection}>
+              {/* Concentric Orbital Ring behind the Logo */}
+              <View style={styles.orbitalRingContainer} pointerEvents="none">
+                <View style={styles.orbitalRing} />
+                <View style={styles.orbitSatellitePurple} />
+                <View style={styles.orbitSatelliteCyan} />
+                <View style={styles.orbitSatellitePink} />
+              </View>
+
+              {/* Pulsing Ambient Halo */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.logoHaloGlow,
+                  {
+                    opacity: logoGlowOpacity,
+                    transform: [{ scale: logoPulse }],
+                  },
+                ]}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#8B5CF6', '#EC4899']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.haloGradient}
+                />
+              </Animated.View>
+
+              {/* Center Calling CRM Squircle Logo with handset */}
+              <View style={styles.logoSquircleWrapper}>
+                <LinearGradient
+                  colors={['#4F46E5', '#9333EA', '#F43F5E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.logoSquircle}
+                >
+                  <Ionicons
+                    name="call"
+                    size={38}
+                    color="#FFFFFF"
+                    style={{ transform: [{ rotate: '0deg' }] }}
+                  />
+                  {/* Glossy top highlight */}
+                  <View style={styles.logoGlossHighlight} />
+                </LinearGradient>
+              </View>
+
+              {/* Title & Subtitle */}
+              <Text style={styles.brandTitle}>Calling CRM</Text>
+              <Text style={styles.brandSubtitle}>Sign in to your account</Text>
+            </View>
+
+            {/* Login Card */}
+            <View style={styles.card}>
+              {errorMessage ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                  <Text style={styles.errorText}>{errorMessage}</Text>
+                </View>
+              ) : null}
+
+              {/* Email Address Field */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email Address</Text>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => emailInputRef.current?.focus()}
+                  style={[
+                    styles.inputBox,
+                    focusedField === 'email' && styles.inputBoxFocused,
+                  ]}
+                >
+                  <View style={styles.inputIconBox} pointerEvents="none">
+                    <Ionicons name="mail-outline" size={19} color="#8B5CF6" />
+                  </View>
+                  <TextInput
+                    ref={emailInputRef}
+                    style={styles.textInputField}
+                    placeholder="agent@crm.com"
+                    placeholderTextColor="#94A3B8"
+                    value={email}
+                    onChangeText={(t) => {
+                      setEmail(t);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                    onFocus={() => setFocusedField('email')}
+                    onBlur={() => setFocusedField(null)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
+                    editable={!loading}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Password Field */}
+              <View style={[styles.inputGroup, { marginTop: 14 }]}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => passwordInputRef.current?.focus()}
+                  style={[
+                    styles.inputBox,
+                    focusedField === 'password' && styles.inputBoxFocused,
+                  ]}
+                >
+                  <View style={styles.inputIconBox} pointerEvents="none">
+                    <Ionicons name="lock-closed-outline" size={19} color="#8B5CF6" />
+                  </View>
+                  <TextInput
+                    ref={passwordInputRef}
+                    style={styles.textInputField}
+                    placeholder="••••••••"
+                    placeholderTextColor="#94A3B8"
+                    value={password}
+                    onChangeText={(t) => {
+                      setPassword(t);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                    onFocus={() => setFocusedField('password')}
+                    onBlur={() => setFocusedField(null)}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
+                    editable={!loading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color="#94A3B8"
+                    />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
+
+              {/* Sign In CTA Button */}
+              <TouchableOpacity
+                style={styles.signInButton}
+                onPress={handleLogin}
+                activeOpacity={0.88}
+                disabled={loading}
+              >
+                <LinearGradient
+                  colors={['#3B82F6', '#8B5CF6', '#EC4899']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.signInGradient}
+                >
+                  <Text style={styles.signInText}>
+                    {loading ? 'Signing In...' : 'Sign In'}
+                  </Text>
+                  <View style={styles.arrowBadge}>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  </View>
+
+                  {/* Shimmer sweep effect */}
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.btnShimmerBeam,
+                      { transform: [{ translateX: btnShimmerTranslate }] },
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={['transparent', 'rgba(255, 255, 255, 0.35)', 'transparent']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.shimmerFill}
+                    />
+                  </Animated.View>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
+            {/* Bottom Security Footer */}
+            <View style={styles.footerSection}>
+              <View style={styles.shieldIconContainer}>
+                <Ionicons name="shield-checkmark-outline" size={18} color="#94A3B8" />
+              </View>
+              <Text style={styles.footerText}>Enterprise Security & JWT Authentication</Text>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenRoot: {
+    flex: 1,
+    backgroundColor: '#F8FAFE',
+    position: 'relative',
+    overflow: 'hidden',
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
+    zIndex: 10,
   },
-  container: {
+  keyboardContainer: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
-  header: {
+
+  // ==========================================
+  // TOP FLUID WAVES & AURAS
+  // ==========================================
+  topWaveLayer: {
+    position: 'absolute',
+    top: -60,
+    left: -80,
+    width: 320,
+    height: 320,
+  },
+  topWaveGradient1: {
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    opacity: 0.6,
+  },
+  topWaveGradient2: {
+    position: 'absolute',
+    top: 40,
+    left: 40,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    opacity: 0.5,
+  },
+  topRightAura: {
+    position: 'absolute',
+    top: -40,
+    right: -60,
+    width: 260,
+    height: 260,
+  },
+  auraFill: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 130,
+  },
+
+  // ==========================================
+  // DECORATIVE DOT MATRIX (5x5 GRID)
+  // ==========================================
+  dotMatrixGrid: {
+    position: 'absolute',
+    top: 50,
+    right: 22,
+    width: 50,
+    height: 50,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  matrixDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#C084FC',
+  },
+
+  // ==========================================
+  // FLOATING PARTICLES & ORBS
+  // ==========================================
+  particleCyanRing: {
+    position: 'absolute',
+    top: 170,
+    left: 18,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 3.5,
+    borderColor: 'rgba(56, 189, 248, 0.65)',
+  },
+  particleCyanDot: {
+    position: 'absolute',
+    top: 295,
+    left: 105,
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    backgroundColor: '#38BDF8',
+    shadowColor: '#38BDF8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+  particleMagentaDotLeft: {
+    position: 'absolute',
+    top: 368,
+    left: 28,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#EC4899',
+    shadowColor: '#EC4899',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+  particleBlueSphere: {
+    position: 'absolute',
+    top: 168,
+    right: 125,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#3B82F6',
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+  },
+  particlePinkDotRight: {
+    position: 'absolute',
+    top: 275,
+    right: 110,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#EC4899',
+    shadowColor: '#EC4899',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+  particlePurpleOrbRight: {
+    position: 'absolute',
+    top: 250,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(168, 85, 247, 0.45)',
+    shadowColor: '#A855F7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  particleBottomBlueRing: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 4,
+    borderColor: 'rgba(56, 189, 248, 0.65)',
+  },
+  particleBottomPinkDot: {
+    position: 'absolute',
+    bottom: 145,
+    right: 120,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#EC4899',
+    shadowColor: '#EC4899',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+  },
+
+  // ==========================================
+  // BOTTOM UNDULATING LIVE WAVES
+  // ==========================================
+  bottomWaveLayer: {
+    position: 'absolute',
+    bottom: -70,
+    left: -60,
+    right: -60,
+    height: 260,
+  },
+  bottomWaveGradient1: {
+    width: '120%',
+    height: '100%',
+    borderRadius: 180,
+    opacity: 0.75,
+  },
+  bottomWaveGradient2: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 0,
+    height: 190,
+    borderRadius: 140,
+    opacity: 0.6,
+  },
+
+  // ==========================================
+  // CENTER BRANDING AREA
+  // ==========================================
+  brandingSection: {
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: 16,
+    position: 'relative',
   },
-  logoCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.surfaceElevated,
+  orbitalRingContainer: {
+    position: 'absolute',
+    top: -16,
+    width: 124,
+    height: 124,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.sm,
-    borderWidth: 1.5,
-    borderColor: colors.borderFocus,
   },
-  title: {
-    fontSize: 22,
+  orbitalRing: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 85, 247, 0.22)',
+  },
+  orbitSatellitePurple: {
+    position: 'absolute',
+    top: 4,
+    left: 12,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#8B5CF6',
+  },
+  orbitSatelliteCyan: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#38BDF8',
+  },
+  orbitSatellitePink: {
+    position: 'absolute',
+    top: 50,
+    right: -2,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#EC4899',
+  },
+  logoHaloGlow: {
+    position: 'absolute',
+    top: -4,
+    width: 104,
+    height: 104,
+    borderRadius: 36,
+  },
+  haloGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 36,
+    opacity: 0.45,
+  },
+  logoSquircleWrapper: {
+    width: 82,
+    height: 82,
+    borderRadius: 24,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  logoSquircle: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  logoGlossHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  brandTitle: {
+    fontSize: 26,
     fontWeight: '800',
-    color: colors.textPrimary,
+    color: '#0F172A',
     letterSpacing: -0.5,
+    marginTop: 14,
   },
-  subtitle: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
+  brandSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 3,
   },
+
+  // ==========================================
+  // LOGIN CARD & INPUTS
+  // ==========================================
   card: {
-    padding: spacing.md,
+    padding: 20,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(238, 242, 246, 0.95)',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 5,
   },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs + 2,
+    gap: 8,
     backgroundColor: colors.dangerLight,
-    padding: spacing.sm,
-    borderRadius: spacing.borderRadius.sm,
-    marginBottom: spacing.sm,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.3)',
   },
@@ -316,131 +969,114 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.danger,
     fontSize: 12,
-  },
-  loginBtn: {
-    marginTop: spacing.xs,
-  },
-  demoSection: {
-    marginTop: spacing.md,
-    alignItems: 'center',
-  },
-  demoTitle: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginBottom: spacing.xs,
-  },
-  demoBtnRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  demoPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.surfaceElevated,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  demoPillText: {
-    fontSize: 11,
-    color: colors.textPrimary,
-    fontWeight: '600',
-  },
-  serverPill: {
-    marginTop: spacing.sm + 4,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  serverPillText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    maxWidth: 240,
-  },
-  footer: {
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  footerText: {
-    color: colors.textMuted,
-    fontSize: 11,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(17, 24, 39, 0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.md,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: colors.surface,
-    borderRadius: spacing.borderRadius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  modalTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  modalSubtitle: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginBottom: spacing.sm,
-    lineHeight: 16,
-  },
-  modalBtnRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  modalResetBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: spacing.borderRadius.sm,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  modalResetText: {
-    fontSize: 12,
-    color: colors.textSecondary,
     fontWeight: '500',
   },
-  modalSaveBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: spacing.borderRadius.sm,
-    backgroundColor: colors.primary,
+  inputGroup: {
+    width: '100%',
   },
-  modalSaveText: {
-    fontSize: 12,
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 7,
+  },
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    height: 50,
+  },
+  inputBoxFocused: {
+    borderColor: '#8B5CF6',
+    backgroundColor: '#FFFFFF',
+  },
+  inputIconBox: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  textInputField: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0F172A',
+    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    height: 46,
+  },
+  eyeToggleBtn: {
+    padding: 6,
+  },
+  signInButton: {
+    marginTop: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  signInGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 8,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  signInText: {
     color: '#FFFFFF',
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  arrowBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnShimmerBeam: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 80,
+  },
+  shimmerFill: {
+    width: '100%',
+    height: '100%',
+    transform: [{ skewX: '-25deg' }],
+  },
+
+  // ==========================================
+  // BOTTOM SECURITY FOOTER
+  // ==========================================
+  footerSection: {
+    alignItems: 'center',
+    marginTop: 14,
+    gap: 4,
+  },
+  shieldIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.9)',
+  },
+  footerText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
   },
 });

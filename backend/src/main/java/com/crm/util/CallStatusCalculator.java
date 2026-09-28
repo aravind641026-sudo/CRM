@@ -2,10 +2,14 @@ package com.crm.util;
 
 public final class CallStatusCalculator {
 
-    public static final String NOT_ATTENDED = "NOT_ATTENDED";
+    public static final String MISSED = "MISSED";
     public static final String JUNK = "JUNK";
-    public static final String ACCEPTANCE = "ACCEPTANCE";
+    public static final String CONNECTED = "CONNECTED";
     public static final String PROSPECT = "PROSPECT";
+
+    // Legacy fallback aliases for backward compatibility
+    public static final String NOT_ATTENDED = "MISSED";
+    public static final String ACCEPTANCE = "CONNECTED";
 
     private CallStatusCalculator() {}
 
@@ -19,28 +23,28 @@ public final class CallStatusCalculator {
     }
 
     /**
-     * Calculates automatic call status based strictly on connection state and duration in seconds.
+     * Calculates automatic call status based strictly on connection state and actual conversation duration in seconds.
      *
      * Boundary Rules:
-     * - NOT_ATTENDED: No connection established / missed / rejected / failed / duration <= 0
-     * - JUNK: Connected AND duration <= 20 seconds
-     * - ACCEPTANCE: Connected AND duration > 20 seconds AND duration <= 300 seconds (5 mins)
-     * - PROSPECT: Connected AND duration > 300 seconds (> 5 mins)
+     * - MISSED: Call was NOT answered (regardless of ring duration) OR duration <= 0
+     * - JUNK: Call was ANSWERED AND duration < 30 seconds
+     * - CONNECTED: Call was ANSWERED AND duration >= 30 seconds AND duration <= 300 seconds (5 mins)
+     * - PROSPECT: Call was ANSWERED AND duration > 300 seconds (> 5 mins)
      */
     public static String calculateStatus(boolean isConnected, Integer durationSeconds) {
         if (!isConnected) {
-            return NOT_ATTENDED;
+            return MISSED;
         }
 
         int duration = (durationSeconds != null) ? Math.max(0, durationSeconds) : 0;
         if (duration <= 0) {
-            return NOT_ATTENDED;
+            return MISSED;
         }
 
-        if (duration <= 20) {
+        if (duration < 30) {
             return JUNK;
         } else if (duration <= 300) {
-            return ACCEPTANCE;
+            return CONNECTED;
         } else {
             return PROSPECT;
         }
@@ -50,9 +54,8 @@ public final class CallStatusCalculator {
      * Overloaded helper using technical status string and duration.
      */
     public static String calculateStatus(String technicalStatus, Integer durationSeconds) {
-        int duration = (durationSeconds != null) ? Math.max(0, durationSeconds) : 0;
-        boolean connected = isConnectedResult(technicalStatus) && duration > 0;
-        return calculateStatus(connected, duration);
+        boolean connected = isConnectedResult(technicalStatus);
+        return calculateStatus(connected, durationSeconds);
     }
 
     /**
@@ -61,9 +64,9 @@ public final class CallStatusCalculator {
     public static String getDisplayLabel(String status) {
         if (status == null) return "Unknown";
         return switch (status.trim().toUpperCase()) {
-            case NOT_ATTENDED -> "Not Attended";
+            case MISSED, "NOT_ATTENDED", "NO_ANSWER", "REJECTED", "FAILED", "CANCELLED" -> "Missed";
             case JUNK -> "Junk";
-            case ACCEPTANCE -> "Acceptance";
+            case CONNECTED, "ACCEPTANCE" -> "Connected";
             case PROSPECT -> "Prospect";
             default -> status;
         };

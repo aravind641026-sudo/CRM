@@ -19,5 +19,5 @@ public interface UserService {
     Page<UserResponse> searchUsers(String search, String role, String status, Pageable pageable);
     List<UserResponse> getActiveUsers();
     void changePassword(Long userId, ChangePasswordRequest request);
-    void deleteUser(Long id, Long currentUserId);
+    String deleteUser(Long id, Long currentUserId);
 }

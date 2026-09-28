@@ -201,16 +201,16 @@ public class CallServiceImpl implements CallService {
                 .distinct()
                 .count();
 
-        // Duration classification (Section 2)
+        // Duration classification matching target business rules
         long notAttended = calls.stream()
-                .filter(c -> "NOT_ATTENDED".equalsIgnoreCase(c.getCallStatus()) || !Boolean.TRUE.equals(c.getIsConnected()) || (c.getDurationSeconds() != null && c.getDurationSeconds() == 0))
+                .filter(c -> "MISSED".equalsIgnoreCase(c.getCallStatus()) || "NOT_ATTENDED".equalsIgnoreCase(c.getCallStatus()) || !Boolean.TRUE.equals(c.getIsConnected()) || (c.getDurationSeconds() != null && c.getDurationSeconds() == 0))
                 .count();
         long junkCalls = calls.stream()
-                .filter(c -> "JUNK".equalsIgnoreCase(c.getCallStatus()) || (Boolean.TRUE.equals(c.getIsConnected()) && c.getDurationSeconds() != null && c.getDurationSeconds() > 0 && c.getDurationSeconds() <= 20))
+                .filter(c -> "JUNK".equalsIgnoreCase(c.getCallStatus()) || (Boolean.TRUE.equals(c.getIsConnected()) && c.getDurationSeconds() != null && c.getDurationSeconds() > 0 && c.getDurationSeconds() < 30))
                 .count();
         long shortCalls = junkCalls;
         long acceptableCalls = calls.stream()
-                .filter(c -> "ACCEPTANCE".equalsIgnoreCase(c.getCallStatus()) || (Boolean.TRUE.equals(c.getIsConnected()) && c.getDurationSeconds() != null && c.getDurationSeconds() > 20 && c.getDurationSeconds() <= 300))
+                .filter(c -> "CONNECTED".equalsIgnoreCase(c.getCallStatus()) || "ACCEPTANCE".equalsIgnoreCase(c.getCallStatus()) || (Boolean.TRUE.equals(c.getIsConnected()) && c.getDurationSeconds() != null && c.getDurationSeconds() >= 30 && c.getDurationSeconds() <= 300))
                 .count();
         long prospectCalls = calls.stream()
                 .filter(c -> "PROSPECT".equalsIgnoreCase(c.getCallStatus()) || (Boolean.TRUE.equals(c.getIsConnected()) && c.getDurationSeconds() != null && c.getDurationSeconds() > 300))

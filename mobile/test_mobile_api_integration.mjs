@@ -16,7 +16,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const FIREBASE_API_KEY = "AIzaSyBtqnhkIqRSdZ_pLA7sdWB9bKy5WQBVvGg";
+const FIREBASE_API_KEY = "AIzaSyBFXGeQ0OytxoSKwgj8o1gdf7m7O0VwNEk";
 const RAW_URL = baseUrlFromEnv || "http://127.0.0.1:8080";
 const BACKEND_URL = RAW_URL.endsWith('/api/v1') ? RAW_URL : `${RAW_URL.replace(/\/+$/, '')}/api/v1`;
 console.log(`Using Backend API Base URL from .env: ${BACKEND_URL}`);

@@ -25,4 +25,5 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
                                    Pageable pageable);
 
     List<AuditLog> findByUserId(Long userId);
+    void deleteByUserId(Long userId);
 }

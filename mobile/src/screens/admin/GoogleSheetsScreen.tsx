@@ -6,7 +6,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
@@ -14,11 +14,13 @@ import { spacing } from '../../theme/spacing';
 import { MeqHeader } from '../../components/common/MeqHeader';
 import { Card } from '../../components/common/Card';
 import { LoadingState } from '../../components/common/LoadingState';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { sheetsApi } from '../../api/sheetsApi';
 import { GoogleSheetsSyncLog } from '../../types';
 
 export const GoogleSheetsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
 
   const [history, setHistory] = useState<GoogleSheetsSyncLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,7 +124,8 @@ export const GoogleSheetsScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+    <AmbientBackground variant="admin">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <MeqHeader
         showLogo={false}
         title="Google Sync History"
@@ -137,7 +140,7 @@ export const GoogleSheetsScreen: React.FC = () => {
           data={history}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderHistoryItem}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -165,14 +168,15 @@ export const GoogleSheetsScreen: React.FC = () => {
           }
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </AmbientBackground>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   listContent: {
     paddingHorizontal: spacing.md,

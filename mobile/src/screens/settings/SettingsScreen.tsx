@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { GradientView } from '../../components/common/GradientView';
@@ -19,13 +18,11 @@ import { MeqHeader } from '../../components/common/MeqHeader';
 import { IconTile } from '../../components/common/IconTile';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
+import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../api/authApi';
-import { usersApi } from '../../api/usersApi';
 import { shiftApi } from '../../api/shiftApi';
 import { ShiftChangeRequest, ShiftOption } from '../../types';
-import { getApiBaseUrl, setApiBaseUrl } from '../../api/client';
-import { API_BASE_URL, STORAGE_KEYS } from '../../config/constants';
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -46,13 +43,6 @@ export const SettingsScreen: React.FC = () => {
   const [shiftReason, setShiftReason] = useState('');
   const [shiftSubmitting, setShiftSubmitting] = useState(false);
 
-  // Request Admin Access state
-  const [adminRequestStatus, setAdminRequestStatus] = useState<
-    'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED'
-  >('NOT_REQUESTED');
-  const [requestingAdmin, setRequestingAdmin] = useState(false);
-  const [showAdminRequestForm, setShowAdminRequestForm] = useState(false);
-
   // Change Password state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -63,7 +53,7 @@ export const SettingsScreen: React.FC = () => {
   // About App info
   const [showAboutApp, setShowAboutApp] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (user) {
       setEditName(user.name || '');
       setEditPhone(user.phone || '');
@@ -83,19 +73,9 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     loadShiftData();
   }, []);
-
-  React.useEffect(() => {
-    if (!isAdmin) {
-      usersApi.getAdminAccessStatus().then((res) => {
-        if (res?.status) {
-          setAdminRequestStatus(res.status);
-        }
-      }).catch(() => {});
-    }
-  }, [isAdmin]);
 
   const handleRequestShiftChange = async () => {
     if (!selectedShift) {
@@ -148,40 +128,6 @@ export const SettingsScreen: React.FC = () => {
     setShowAccountProfile(false);
   };
 
-  const handleRequestAdminAccess = () => {
-    if (adminRequestStatus === 'PENDING') {
-      Alert.alert('Request Pending', 'Your request for Admin access is already submitted and pending review.');
-      return;
-    }
-    if (adminRequestStatus === 'APPROVED' || isAdmin) {
-      Alert.alert('Already Admin', 'You already have administrator access.');
-      return;
-    }
-
-    Alert.alert(
-      'Request Admin Access',
-      'Submit request to your CRM administrator for elevated administrative privileges?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Submit Request',
-          onPress: async () => {
-            setRequestingAdmin(true);
-            try {
-              const res = await usersApi.requestAdminAccess('Elevated access requested from Settings');
-              setAdminRequestStatus(res?.status || 'PENDING');
-              Alert.alert('Success', 'Admin access requested successfully. Waiting for administrator review.');
-            } catch (err: any) {
-              Alert.alert('Request Failed', err.message || 'Unable to submit request.');
-            } finally {
-              setRequestingAdmin(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword) {
       Alert.alert('Validation Error', 'Please enter your current and new password.');
@@ -189,7 +135,6 @@ export const SettingsScreen: React.FC = () => {
     }
     if (newPassword.length < 6) {
       Alert.alert('Validation Error', 'New password must be at least 6 characters long.');
-      return;
     }
     if (newPassword !== confirmPassword) {
       Alert.alert('Validation Error', 'New passwords do not match.');
@@ -240,13 +185,15 @@ export const SettingsScreen: React.FC = () => {
       ]);
     }
   };
+
   const roleLabel = isAdmin ? 'ADMIN' : 'AGENT';
   const initial = user?.name ? user.name.charAt(0).toUpperCase() : 'K';
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
-      {/* Top Header: MEQ CRM Branding */}
-      <MeqHeader onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} />
+    <AmbientBackground variant="settings">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
+        {/* Top Header: MEQ CRM Branding */}
+        <MeqHeader onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} />
 
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
@@ -362,7 +309,7 @@ export const SettingsScreen: React.FC = () => {
 
           <View style={styles.menuDivider} />
 
-          {/* Work Shift */}
+          {/* 2. Work Shift */}
           <TouchableOpacity
             style={styles.menuItem}
             activeOpacity={0.7}
@@ -464,71 +411,6 @@ export const SettingsScreen: React.FC = () => {
 
           <View style={styles.menuDivider} />
 
-          {/* 2. Request Admin Access (for Agent) */}
-          {!isAdmin && (
-            <>
-              <TouchableOpacity
-                style={styles.menuItem}
-                activeOpacity={0.7}
-                onPress={() => setShowAdminRequestForm(!showAdminRequestForm)}
-              >
-                <IconTile name="shield-checkmark" variant="orange" size={38} iconSize={18} />
-                <View style={styles.menuInfo}>
-                  <Text style={styles.menuTitle}>Request Admin Access</Text>
-                  <Text style={styles.menuSubtitle}>
-                    Status:{' '}
-                    {adminRequestStatus === 'NOT_REQUESTED'
-                      ? 'Not Requested'
-                      : adminRequestStatus === 'PENDING'
-                      ? 'Pending Review'
-                      : adminRequestStatus === 'APPROVED'
-                      ? 'Approved'
-                      : 'Rejected'}
-                  </Text>
-                </View>
-                <Ionicons
-                  name={showAdminRequestForm ? 'chevron-up' : 'chevron-forward'}
-                  size={18}
-                  color="#9CA3AF"
-                />
-              </TouchableOpacity>
-
-              {showAdminRequestForm && (
-                <View style={styles.embeddedForm}>
-                  <Text style={styles.embeddedFormText}>
-                    Need elevated access? Submit request to your CRM administrator.
-                  </Text>
-                  {adminRequestStatus !== 'APPROVED' && (
-                    <TouchableOpacity
-                      style={[
-                        styles.actionBtn,
-                        adminRequestStatus === 'PENDING' && styles.actionBtnDisabled,
-                      ]}
-                      onPress={handleRequestAdminAccess}
-                      disabled={requestingAdmin || adminRequestStatus === 'PENDING'}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name={adminRequestStatus === 'PENDING' ? 'time-outline' : 'key-outline'}
-                        size={15}
-                        color="#ffffff"
-                      />
-                      <Text style={styles.actionBtnText}>
-                        {adminRequestStatus === 'PENDING'
-                          ? 'Request Pending Review'
-                          : adminRequestStatus === 'REJECTED'
-                          ? 'Re-request Admin Access'
-                          : 'Submit Admin Request'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              <View style={styles.menuDivider} />
-            </>
-          )}
-
           {/* 3. Change Password */}
           <TouchableOpacity
             style={styles.menuItem}
@@ -587,11 +469,15 @@ export const SettingsScreen: React.FC = () => {
           <View style={styles.menuDivider} />
 
           {/* 4. Notifications */}
-          <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Notifications')}
+          >
             <IconTile name="notifications" variant="red" size={38} iconSize={18} />
             <View style={styles.menuInfo}>
               <Text style={styles.menuTitle}>Notifications</Text>
-              <Text style={styles.menuSubtitle}>Push alerts & call reminders</Text>
+              <Text style={styles.menuSubtitle}>System alerts & reminders</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -642,7 +528,7 @@ export const SettingsScreen: React.FC = () => {
           )}
         </View>
 
-        {/* Full-width Red Gradient Log Out Button (Screen 5 Target Design) */}
+        {/* Full-width Red Gradient Log Out Button */}
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={handleLogout}
@@ -660,6 +546,7 @@ export const SettingsScreen: React.FC = () => {
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
+  </AmbientBackground>
   );
 };
 
@@ -782,6 +669,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#16A34A',
   },
+  menuCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingVertical: 6,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 231, 235, 0.8)',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  menuInfo: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  menuSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#F3F4F6',
+    marginLeft: 66,
+  },
+  embeddedForm: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 14,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
   formActionRow: {
     flexDirection: 'row',
     gap: 10,
@@ -798,131 +732,57 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   cancelBtnText: {
-    color: '#374151',
-    fontWeight: '700',
     fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   saveBtn: {
     backgroundColor: colors.primary,
   },
   saveBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
     fontSize: 13,
-  },
-  menuCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    paddingVertical: 4,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 231, 235, 0.8)',
-    shadowColor: '#111827',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  menuInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  menuTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  menuSubtitle: {
-    fontSize: 11,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#F3F4F6',
-  },
-  embeddedForm: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    marginVertical: 6,
-  },
-  embeddedFormText: {
-    fontSize: 12,
-    color: '#4B5563',
-    marginBottom: 8,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#F59E0B',
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  actionBtnDisabled: {
-    opacity: 0.6,
-  },
-  actionBtnText: {
-    fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  presetPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: '#EEF2FF',
-  },
-  presetPillText: {
-    fontSize: 11,
-    color: '#4F46E5',
-    fontWeight: '600',
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#E5E7EB',
   },
   infoKey: {
     fontSize: 12,
-    color: '#6B7280',
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
   infoValue: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#111827',
+    color: colors.textPrimary,
   },
   logoutBtnContainer: {
-    marginTop: 4,
-    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 8,
   },
   logoutGradientBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 14,
     gap: 8,
-    paddingVertical: 15,
-    borderRadius: 16,
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
   },
   logoutBtnText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
 });

@@ -17,6 +17,7 @@ public class DashboardSummaryResponse {
     // High-level KPI cards
     private long totalUsers;
     private long activeUsers;
+    private long activeAgents;
     private long totalProjects;
     private long totalLeads;
     private long assignedLeads;

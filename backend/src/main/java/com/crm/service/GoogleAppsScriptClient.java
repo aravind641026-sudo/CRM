@@ -23,10 +23,10 @@ public class GoogleAppsScriptClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    @Value("${app.google-sheets.apps-script-url:https://script.google.com/macros/s/AKfycbylAaHN1h43Q0FcdQTmoBJ44457TPz7B7djsjkb8RbrfVJkDehXwwJP1cRq7XsueVG6/exec}")
+    @Value("${app.google-sheets.apps-script-url:https://script.google.com/macros/s/AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl/exec}")
     private String appsScriptUrl;
 
-    @Value("${app.google-sheets.shared-secret:AKfycbylAaHN1h43Q0FcdQTmoBJ44457TPz7B7djsjkb8RbrfVJkDehXwwJP1cRq7XsueVG6}")
+    @Value("${app.google-sheets.shared-secret:AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl}")
     private String sharedSecret;
 
     @Value("${app.google-sheets.connect-timeout-ms:10000}")

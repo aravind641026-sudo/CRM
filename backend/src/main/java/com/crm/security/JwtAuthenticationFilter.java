@@ -24,7 +24,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider tokenProvider;
     private final CustomUserDetailsService customUserDetailsService;
 
-    @org.springframework.beans.factory.annotation.Value("${app.google-sheets.shared-secret:AKfycbylAaHN1h43Q0FcdQTmoBJ44457TPz7B7djsjkb8RbrfVJkDehXwwJP1cRq7XsueVG6}")
+    @org.springframework.beans.factory.annotation.Value("${app.google-sheets.shared-secret:AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl}")
     private String sharedSecret;
 
     @Override
