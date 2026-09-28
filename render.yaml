@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: calling-crm-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: ohio
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_e3Bb6jtLEHGW@ep-nameless-glitter-b513ehd2-pooler.c-7.us-east-2.aws.neon.tech/crmq?sslmode=require
+      - key: PGHOST
+        value: ep-nameless-glitter-b513ehd2-pooler.c-7.us-east-2.aws.neon.tech
+      - key: PGPORT
+        value: 5432
+      - key: PGDATABASE
+        value: crmq
+      - key: PGUSER
+        value: neondb_owner
+      - key: PGPASSWORD
+        value: npg_e3Bb6jtLEHGW
+      - key: JWT_SECRET
+        value: 9a4f2c8d3e5b7a1f6c8e0d2b4a6c8e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"

@@ -1,0 +1,13 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+service-account*.json
+firebase-credentials*.json
+firebase-service-account*.json
+
+# Build & OS
+.DS_Store
+Thumbs.db

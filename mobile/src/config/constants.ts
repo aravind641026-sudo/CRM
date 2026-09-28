@@ -64,5 +64,6 @@ export const API_BASE_URL = normalizeApiUrl(getRawEnvBaseUrl());
 export const STORAGE_KEYS = {
   AUTH_TOKEN: 'crm_mobile_token',
   USER_DATA: 'crm_mobile_user',
+  ATTENDANCE_DATA: 'crm_mobile_attendance',
   CUSTOM_API_URL: 'crm_custom_api_url',
 };

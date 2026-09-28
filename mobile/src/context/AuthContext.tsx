@@ -31,6 +31,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
       await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+      await AsyncStorage.removeItem(STORAGE_KEYS.ATTENDANCE_DATA);
     } catch (e) {
       console.warn('Error clearing stored session data:', e);
     }

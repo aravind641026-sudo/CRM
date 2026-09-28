@@ -20,22 +20,23 @@ import { IconTile } from '../../components/common/IconTile';
 import { AnimatedCard } from '../../components/common/AnimatedCard';
 import { AnimatedProgressBar } from '../../components/common/AnimatedProgressBar';
 import { LoadingState } from '../../components/common/LoadingState';
+import { AttendanceCard } from '../../components/attendance/AttendanceCard';
 import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { dashboardApi } from '../../api/dashboardApi';
 import { projectsApi } from '../../api/projectsApi';
-import { attendanceApi } from '../../api/attendanceApi';
 import { useAuth } from '../../context/AuthContext';
-import { AdminDashboardSummary, Project, Attendance, RootStackParamList } from '../../types';
+import { useAttendance } from '../../context/AttendanceContext';
+import { AdminDashboardSummary, Project, RootStackParamList } from '../../types';
 
 export const AdminDashboardScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { isAuthenticated, token, isLoading: authLoading, user } = useAuth();
+  const { refreshAttendance } = useAttendance();
 
   const [summary, setSummary] = useState<AdminDashboardSummary | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [todayAttendance, setTodayAttendance] = useState<Attendance | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [animKey, setAnimKey] = useState(0);
@@ -50,22 +51,21 @@ export const AdminDashboardScreen: React.FC = () => {
     if (!isAuthenticated || !token || authLoading) return;
     if (!isRefresh) setLoading(true);
     try {
-      const [sumData, projData, attData] = await Promise.allSettled([
+      const [sumData, projData] = await Promise.allSettled([
         dashboardApi.getAdminDashboard(),
         projectsApi.getProjects(),
-        attendanceApi.getTodayAttendance(),
+        refreshAttendance(true),
       ]);
 
       if (sumData.status === 'fulfilled') setSummary(sumData.value);
       if (projData.status === 'fulfilled') setProjects(projData.value);
-      if (attData.status === 'fulfilled') setTodayAttendance(attData.value);
     } catch (err) {
       console.warn('Failed to load admin dashboard:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAuthenticated, token, authLoading]);
+  }, [isAuthenticated, token, authLoading, refreshAttendance]);
 
   useEffect(() => {
     if (isAuthenticated && token && !authLoading) {
@@ -125,21 +125,21 @@ export const AdminDashboardScreen: React.FC = () => {
         </AnimatedCard>
 
         {/* Dashboard Hero Card matching Reference Image */}
-        <AnimatedCard delay={100}>
+        <AnimatedCard delay={100} style={{ marginBottom: 14 }}>
           <HeroDashboardCard
             totalRevenue={summary?.totalRevenue ?? 55000}
             totalLeads={summary?.totalLeads ?? 8}
             convertedLeads={summary?.convertedLeads ?? 2}
             conversionRate={conversionRate || 25}
             revenueLabel="TOTAL CLOSED REVENUE"
-            clockInTime={todayAttendance?.clockInTime}
-            clockOutTime={todayAttendance?.clockOutTime}
-            durationMinutes={todayAttendance?.durationMinutes ?? 347}
-            attendanceStatus={todayAttendance?.status}
-            shiftDisplayName={todayAttendance?.shiftDisplayName || '09:00 AM – 06:00 PM'}
-            clockedIn={!!todayAttendance?.clockInTime}
-            clockedOut={!!todayAttendance?.clockOutTime}
-            onPressAttendance={() => navigation.navigate('AttendanceHistory')}
+            showAttendanceCapsule={false}
+          />
+        </AnimatedCard>
+
+        {/* Attendance Punch In/Out Actions */}
+        <AnimatedCard delay={130} style={{ marginBottom: 14 }}>
+          <AttendanceCard
+            onViewHistory={() => navigation.navigate('AttendanceHistory')}
           />
         </AnimatedCard>
 

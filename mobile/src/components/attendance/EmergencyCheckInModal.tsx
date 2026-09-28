@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,33 +8,40 @@ import {
   ActivityIndicator,
   Animated,
   StatusBar,
-  AppState,
-  AppStateStatus,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import { attendanceApi } from '../../api/attendanceApi';
+import { useAttendance } from '../../context/AttendanceContext';
 import { startMobileEmergencyAlarm, stopMobileEmergencyAlarm } from '../../utils/alarmSound';
-import { attendanceEventManager } from '../../utils/attendanceEvents';
 
 export const EmergencyCheckInModal: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
-  const [isOverdue, setIsOverdue] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const {
+    attendance,
+    isOverdue,
+    isSnoozed,
+    isClockedIn,
+    isClockedOut,
+    isSubmitting,
+    clockIn,
+    snoozeAlarm,
+  } = useAttendance();
+
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const checkIntervalRef = useRef<any>(null);
   const clockIntervalRef = useRef<any>(null);
-  const snoozeTimeoutRef = useRef<any>(null);
 
-  const shiftDisplayName = user?.shiftDisplayName || '09:00 AM – 06:00 PM';
-  const shiftStartTime = user?.shiftStartTime || '09:00:00';
+  const shiftDisplayName =
+    attendance?.shiftDisplayName || user?.shiftDisplayName || '10:00 AM – 07:00 PM';
+
+  const isVisible =
+    isAuthenticated && isOverdue && !isSnoozed && !isClockedIn && !isClockedOut;
 
   // Pulse animation loop
   useEffect(() => {
-    if (isOverdue) {
+    if (isVisible) {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -52,111 +59,11 @@ export const EmergencyCheckInModal: React.FC = () => {
       pulse.start();
       return () => pulse.stop();
     }
-  }, [isOverdue, pulseAnim]);
+  }, [isVisible, pulseAnim]);
 
-  const checkAttendance = useCallback(async () => {
-    if (!isAuthenticated || !user) return;
-
-    // 1. If currently snoozed via "Skip for Now", suppress the alert until snooze expires
-    if (attendanceEventManager.isSnoozed()) {
-      setIsOverdue(false);
-      stopMobileEmergencyAlarm();
-      return;
-    }
-
-    try {
-      const today = await attendanceApi.getTodayAttendance();
-      if (!today) return;
-
-      // 2. If user is already clocked in or clocked out, no alert is needed
-      if (today.clockedIn || today.clockedOut || today.clockInTime) {
-        setIsOverdue(false);
-        stopMobileEmergencyAlarm();
-        attendanceEventManager.clearSnooze();
-        return;
-      }
-
-      // 3. Check if current time is past shift start time
-      const now = new Date();
-      const [startHours, startMinutes] = shiftStartTime.split(':').map(Number);
-      const shiftStartDate = new Date();
-      shiftStartDate.setHours(startHours || 9, startMinutes || 0, 0, 0);
-
-      const isPastShiftStart = now.getTime() >= shiftStartDate.getTime();
-      const shouldAlert = !today.clockedIn && !today.clockedOut && !today.clockInTime && isPastShiftStart;
-
-      setIsOverdue(shouldAlert);
-      if (shouldAlert) {
-        startMobileEmergencyAlarm();
-      } else {
-        stopMobileEmergencyAlarm();
-      }
-    } catch (e) {
-      console.warn('Error checking attendance in EmergencyCheckInModal:', e);
-    }
-  }, [isAuthenticated, user?.id, shiftStartTime]);
-
-  const checkAttendanceRef = useRef(checkAttendance);
+  // Alarm sound controller
   useEffect(() => {
-    checkAttendanceRef.current = checkAttendance;
-  });
-
-  // Subscribe to external attendance updates (e.g. if user clocked in from HomeScreen)
-  useEffect(() => {
-    const unsubscribe = attendanceEventManager.subscribe((latestAtt) => {
-      if (latestAtt?.clockedIn || latestAtt?.clockedOut || latestAtt?.clockInTime) {
-        setIsOverdue(false);
-        stopMobileEmergencyAlarm();
-        attendanceEventManager.clearSnooze();
-        if (snoozeTimeoutRef.current) {
-          clearTimeout(snoozeTimeoutRef.current);
-          snoozeTimeoutRef.current = null;
-        }
-      }
-    });
-
-    const unsubscribeRefresh = attendanceEventManager.onRefreshRequested(() => {
-      checkAttendanceRef.current();
-    });
-
-    return () => {
-      unsubscribe();
-      unsubscribeRefresh();
-    };
-  }, []);
-
-  useEffect(() => {
-    // Initial check
-    checkAttendanceRef.current();
-
-    // Clock ticker every second
-    clockIntervalRef.current = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
-    // Periodic repeating attendance check every 60 seconds
-    checkIntervalRef.current = setInterval(() => {
-      checkAttendanceRef.current();
-    }, 60000);
-
-    // Listen to AppState (foreground/background transitions)
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
-        checkAttendanceRef.current();
-      }
-    });
-
-    return () => {
-      stopMobileEmergencyAlarm();
-      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
-      if (clockIntervalRef.current) clearInterval(clockIntervalRef.current);
-      if (snoozeTimeoutRef.current) clearTimeout(snoozeTimeoutRef.current);
-      subscription.remove();
-    };
-  }, [isAuthenticated, user?.id]);
-
-  useEffect(() => {
-    if (isOverdue) {
+    if (isVisible) {
       startMobileEmergencyAlarm();
     } else {
       stopMobileEmergencyAlarm();
@@ -164,56 +71,40 @@ export const EmergencyCheckInModal: React.FC = () => {
     return () => {
       stopMobileEmergencyAlarm();
     };
-  }, [isOverdue]);
+  }, [isVisible]);
+
+  // Clock ticker every second
+  useEffect(() => {
+    clockIntervalRef.current = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => {
+      if (clockIntervalRef.current) clearInterval(clockIntervalRef.current);
+    };
+  }, []);
 
   // Handle Clock In Action from the Alarm modal
   const handleClockIn = async () => {
-    setError(null);
-    setSubmitting(true);
+    setLocalError(null);
     stopMobileEmergencyAlarm();
     try {
-      const updated = await attendanceApi.clockIn();
-
-      // Immediately broadcast the updated attendance state globally
-      attendanceEventManager.setLatestAttendance(updated);
-      attendanceEventManager.clearSnooze();
-
-      if (snoozeTimeoutRef.current) {
-        clearTimeout(snoozeTimeoutRef.current);
-        snoozeTimeoutRef.current = null;
-      }
-
-      setIsOverdue(false);
+      await clockIn();
       stopMobileEmergencyAlarm();
     } catch (err: any) {
-      setError(err.message || 'Unable to record check-in. Please try again.');
+      setLocalError(err.message || 'Unable to record check-in. Please try again.');
       startMobileEmergencyAlarm();
-    } finally {
-      setSubmitting(false);
     }
   };
 
   // Handle "Skip for Now" Action (Snoozes the alarm for exactly 5 minutes)
   const handleSkip = () => {
     stopMobileEmergencyAlarm();
-    setIsOverdue(false);
-    setError(null);
-
-    // Set 5-minute snooze in the global manager
-    attendanceEventManager.snoozeAlarm(5);
-
-    // Schedule next alarm check for exactly 5 minutes later (300,000 ms)
-    if (snoozeTimeoutRef.current) {
-      clearTimeout(snoozeTimeoutRef.current);
-    }
-
-    snoozeTimeoutRef.current = setTimeout(() => {
-      attendanceEventManager.clearSnooze();
-      checkAttendance();
-    }, 5 * 60 * 1000);
+    setLocalError(null);
+    snoozeAlarm(5);
   };
 
-  if (!isOverdue) {
+  if (!isVisible) {
     return null;
   }
 
@@ -226,7 +117,7 @@ export const EmergencyCheckInModal: React.FC = () => {
 
   return (
     <Modal
-      visible={isOverdue}
+      visible={isVisible}
       transparent={false}
       animationType="fade"
       statusBarTranslucent
@@ -253,9 +144,9 @@ export const EmergencyCheckInModal: React.FC = () => {
           You have not checked in for today's shift. Check-in is required to continue using the application.
         </Text>
 
-        {error ? (
+        {localError ? (
           <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>{localError}</Text>
           </View>
         ) : null}
 
@@ -279,12 +170,12 @@ export const EmergencyCheckInModal: React.FC = () => {
 
         {/* Button 1: Check In Action Button */}
         <TouchableOpacity
-          style={[styles.checkInBtn, submitting && styles.checkInBtnDisabled]}
+          style={[styles.checkInBtn, isSubmitting && styles.checkInBtnDisabled]}
           onPress={handleClockIn}
-          disabled={submitting}
+          disabled={isSubmitting !== null}
           activeOpacity={0.85}
         >
-          {submitting ? (
+          {isSubmitting === 'clockIn' ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator size="small" color="#FFFFFF" />
               <Text style={styles.checkInBtnText}>RECORDING CHECK-IN...</Text>
@@ -301,7 +192,7 @@ export const EmergencyCheckInModal: React.FC = () => {
         <TouchableOpacity
           style={styles.skipBtn}
           onPress={handleSkip}
-          disabled={submitting}
+          disabled={isSubmitting !== null}
           activeOpacity={0.85}
         >
           <View style={styles.loadingRow}>
@@ -434,10 +325,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 56,
     borderRadius: 16,
-    backgroundColor: '#EF4444',
+    backgroundColor: '#059669',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#EF4444',
+    shadowColor: '#059669',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.5,
     shadowRadius: 16,

@@ -23,7 +23,7 @@
 // Configuration
 var CONFIG = {
   // Live Public Backend URL for Google Sheets cloud integration
-  DEFAULT_BACKEND_URL: "https://calling-crm-live-backend.loca.lt",
+  DEFAULT_BACKEND_URL: "https://instructor-davis-mods-scenario.trycloudflare.com",
   
   // Shared secret for admin authentication with Spring Boot
   DEFAULT_SECRET: "AKfycbzuicbaYTDeB1xFF925JE2JGp4Q6bETUuwNSCWHyNlApUTWEhhVPFXVKf7cWZc5IAbl",
@@ -720,7 +720,7 @@ function getBackendUrl() {
   var savedUrl = PropertiesService.getScriptProperties().getProperty("BACKEND_URL");
   var url = (savedUrl && savedUrl.trim() !== "") ? savedUrl.trim() : CONFIG.DEFAULT_BACKEND_URL;
   // Automatically clear old/expired tunnel domains
-  if (savedUrl && (savedUrl.indexOf("chilly-wolves-post") !== -1 || savedUrl.indexOf("petite-fans-send") !== -1 || savedUrl.indexOf("odd-tables-rhyme") !== -1)) {
+  if (savedUrl && (savedUrl.indexOf("chilly-wolves-post") !== -1 || savedUrl.indexOf("petite-fans-send") !== -1 || savedUrl.indexOf("odd-tables-rhyme") !== -1 || savedUrl.indexOf("evil-tools-allow") !== -1)) {
     url = CONFIG.DEFAULT_BACKEND_URL;
     PropertiesService.getScriptProperties().setProperty("BACKEND_URL", url);
   }

@@ -23,23 +23,20 @@ import { LoadingState } from '../../components/common/LoadingState';
 import { AttendanceCard } from '../../components/attendance/AttendanceCard';
 import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { useAuth } from '../../context/AuthContext';
+import { useAttendance } from '../../context/AttendanceContext';
 import { dashboardApi } from '../../api/dashboardApi';
 import { salesApi } from '../../api/salesApi';
-import { attendanceApi } from '../../api/attendanceApi';
-import { attendanceEventManager } from '../../utils/attendanceEvents';
-import { UserDashboardSummary, Sale, Attendance, RootStackParamList } from '../../types';
+import { UserDashboardSummary, Sale, RootStackParamList } from '../../types';
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { user, token, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { refreshAttendance } = useAttendance();
 
   const [dashboard, setDashboard] = useState<UserDashboardSummary | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
-  const [todayAttendance, setTodayAttendance] = useState<Attendance | null>(
-    attendanceEventManager.getLatestAttendance() || null
-  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [animKey, setAnimKey] = useState(0);
@@ -50,16 +47,6 @@ export const HomeScreen: React.FC = () => {
     }
   }, [isFocused]);
 
-  // Subscribe to real-time attendance events (e.g. clock-in from Emergency Check-In Modal)
-  useEffect(() => {
-    const unsubscribe = attendanceEventManager.subscribe((latestAtt) => {
-      if (latestAtt) {
-        setTodayAttendance(latestAtt);
-      }
-    });
-    return unsubscribe;
-  }, []);
-
   const monthlyTargetAmount = 100000;
 
   const loadData = useCallback(async (isRefresh = false) => {
@@ -67,25 +54,21 @@ export const HomeScreen: React.FC = () => {
     if (!isRefresh) setLoading(true);
 
     try {
-      const [dashData, salesData, attData] = await Promise.allSettled([
+      const [dashData, salesData] = await Promise.allSettled([
         dashboardApi.getUserDashboard(),
         salesApi.getMySales(),
-        attendanceApi.getTodayAttendance(),
+        refreshAttendance(true),
       ]);
 
       if (dashData.status === 'fulfilled') setDashboard(dashData.value);
       if (salesData.status === 'fulfilled') setSales(salesData.value);
-      if (attData.status === 'fulfilled') {
-        setTodayAttendance(attData.value);
-        attendanceEventManager.setLatestAttendance(attData.value);
-      }
     } catch (err: any) {
       console.warn('Failed to load dashboard data:', err?.message || err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAuthenticated, token, authLoading]);
+  }, [isAuthenticated, token, authLoading, refreshAttendance]);
 
   useEffect(() => {
     if (isAuthenticated && token && !authLoading) {
@@ -173,8 +156,6 @@ export const HomeScreen: React.FC = () => {
         {/* Attendance Punch In/Out Actions */}
         <AnimatedCard delay={150} style={styles.sectionMargin}>
           <AttendanceCard
-            initialAttendance={todayAttendance}
-            onAttendanceUpdated={(updated) => setTodayAttendance(updated)}
             onViewHistory={() => navigation.navigate('AttendanceHistory')}
           />
         </AnimatedCard>

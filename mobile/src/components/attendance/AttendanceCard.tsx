@@ -1,17 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Card } from '../common/Card';
-import { StatusBadge } from '../common/StatusBadge';
-import { Button } from '../common/Button';
 import { GradientView } from '../common/GradientView';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
+import { useAttendance } from '../../context/AttendanceContext';
 import { Attendance } from '../../types';
-import { attendanceApi } from '../../api/attendanceApi';
-import { useAuth } from '../../context/AuthContext';
-import { attendanceEventManager } from '../../utils/attendanceEvents';
 
 interface AttendanceCardProps {
   initialAttendance?: Attendance | null;
@@ -20,169 +14,45 @@ interface AttendanceCardProps {
 }
 
 export const AttendanceCard: React.FC<AttendanceCardProps> = ({
-  initialAttendance,
   onViewHistory,
-  onAttendanceUpdated,
 }) => {
-  const { isAuthenticated, token, isLoading: authLoading } = useAuth();
-  const [attendance, setAttendance] = useState<Attendance | null>(
-    initialAttendance !== undefined ? initialAttendance : (attendanceEventManager.getLatestAttendance() || null)
-  );
-  const [loadingAction, setLoadingAction] = useState<'clockIn' | 'clockOut' | null>(null);
-  const [liveDuration, setLiveDuration] = useState<string>('0h 0m');
-
-  const onUpdatedRef = React.useRef(onAttendanceUpdated);
-  useEffect(() => {
-    onUpdatedRef.current = onAttendanceUpdated;
-  });
-
-  const fetchToday = useCallback(async () => {
-    if (!isAuthenticated || !token || authLoading) return;
-    try {
-      const data = await attendanceApi.getTodayAttendance();
-      setAttendance(data);
-      attendanceEventManager.setLatestAttendance(data);
-      onUpdatedRef.current?.(data);
-    } catch (e: any) {
-      console.warn('Failed to load today attendance:', e?.message || e);
-    }
-  }, [isAuthenticated, token, authLoading]);
-
-  // Sync when initialAttendance prop changes
-  useEffect(() => {
-    if (initialAttendance !== undefined) {
-      setAttendance(initialAttendance);
-    } else {
-      fetchToday();
-    }
-  }, [initialAttendance, fetchToday]);
-
-  // Subscribe to real-time attendance changes across the entire app (e.g., from EmergencyCheckInModal)
-  useEffect(() => {
-    const unsubscribe = attendanceEventManager.subscribe((latestAtt) => {
-      if (latestAtt) {
-        setAttendance(latestAtt);
-        onUpdatedRef.current?.(latestAtt);
-      }
-    });
-    return unsubscribe;
-  }, []);
-
-  // Refetch when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      if (initialAttendance === undefined) {
-        fetchToday();
-      }
-    }, [initialAttendance, fetchToday])
-  );
-
-  // Parse time deterministically from ISO string (e.g. "2026-09-23T11:47:35")
-  // Prevents client timezone offsets from altering the recorded time
-  const formatAttendanceTime = (timeStr?: string) => {
-    if (!timeStr) return '--:--';
-    const timePart = timeStr.includes('T')
-      ? timeStr.split('T')[1]
-      : timeStr.includes(' ')
-      ? timeStr.split(' ')[1]
-      : timeStr;
-    const parts = timePart.split(':');
-    if (parts.length >= 2) {
-      let hours = parseInt(parts[0], 10);
-      const minutes = parts[1].slice(0, 2);
-      if (!isNaN(hours)) {
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        hours = hours % 12;
-        hours = hours === 0 ? 12 : hours;
-        return `${hours}:${minutes} ${ampm}`;
-      }
-    }
-    try {
-      const d = new Date(timeStr);
-      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    } catch {
-      return timeStr.slice(11, 16);
-    }
-  };
-
-  // Live duration ticker if clocked in and not clocked out; or recorded duration if clocked out
-  useEffect(() => {
-    if (attendance?.clockInTime && !attendance?.clockOutTime) {
-      const updateDuration = () => {
-        const start = new Date(attendance.clockInTime!).getTime();
-        const now = Date.now();
-        const diffMinutes = Math.max(0, Math.floor((now - start) / (1000 * 60)));
-        const hours = Math.floor(diffMinutes / 60);
-        const mins = diffMinutes % 60;
-        setLiveDuration(`${hours}h ${mins}m`);
-      };
-
-      updateDuration();
-      const interval = setInterval(updateDuration, 30000); // every 30 seconds
-      return () => clearInterval(interval);
-    } else if (attendance?.clockInTime && attendance?.clockOutTime) {
-      if (attendance.durationMinutes != null && attendance.durationMinutes > 0) {
-        const hours = Math.floor(attendance.durationMinutes / 60);
-        const mins = attendance.durationMinutes % 60;
-        setLiveDuration(`${hours}h ${mins}m`);
-      } else {
-        const start = new Date(attendance.clockInTime).getTime();
-        const end = new Date(attendance.clockOutTime).getTime();
-        const diffMinutes = Math.max(0, Math.floor((end - start) / (1000 * 60)));
-        const hours = Math.floor(diffMinutes / 60);
-        const mins = diffMinutes % 60;
-        setLiveDuration(`${hours}h ${mins}m`);
-      }
-    } else {
-      setLiveDuration('0h 0m');
-    }
-  }, [attendance]);
+  const {
+    attendance,
+    isLoading,
+    isSubmitting,
+    isClockedIn,
+    isClockedOut,
+    isCompleted,
+    liveDuration,
+    clockIn,
+    clockOut,
+    formatAttendanceTime,
+  } = useAttendance();
 
   const handleClockIn = async () => {
-    setLoadingAction('clockIn');
+    if (isSubmitting) return;
     try {
-      const updated = await attendanceApi.clockIn();
-      setAttendance(updated);
-      attendanceEventManager.setLatestAttendance(updated);
-      attendanceEventManager.clearSnooze();
-      if (onAttendanceUpdated) onAttendanceUpdated(updated);
-      const timeFormatted = formatAttendanceTime(updated.clockInTime);
-      Alert.alert('Clocked In Successfully', `Punch recorded at ${timeFormatted}. Have a productive day!`);
+      await clockIn();
     } catch (err: any) {
-      Alert.alert('Clock In Failed', err.message || 'Unable to clock in.');
-    } finally {
-      setLoadingAction(null);
+      // Error toast already displayed by context
     }
   };
 
   const handleClockOut = async () => {
+    if (isSubmitting) return;
     Alert.alert(
       'Confirm Clock Out',
-      'Are you sure you want to clock out for today? You will not be able to clock in again today.',
+      'Are you sure you want to clock out for today? Only one attendance session is permitted per calendar day.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clock Out',
           style: 'destructive',
           onPress: async () => {
-            setLoadingAction('clockOut');
             try {
-              const updated = await attendanceApi.clockOut();
-              setAttendance(updated);
-              attendanceEventManager.setLatestAttendance(updated);
-              attendanceEventManager.clearSnooze();
-              if (onAttendanceUpdated) onAttendanceUpdated(updated);
-              const timeFormatted = formatAttendanceTime(updated.clockOutTime);
-              const hours = Math.floor((updated.durationMinutes || 0) / 60);
-              const mins = (updated.durationMinutes || 0) % 60;
-              Alert.alert(
-                'Clocked Out Successfully',
-                `Punch recorded at ${timeFormatted}.\nTotal duration: ${hours}h ${mins}m`
-              );
+              await clockOut();
             } catch (err: any) {
-              Alert.alert('Clock Out Failed', err.message || 'Unable to clock out.');
-            } finally {
-              setLoadingAction(null);
+              // Error toast already displayed by context
             }
           },
         },
@@ -190,8 +60,7 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
     );
   };
 
-  const isClockedIn = !!attendance?.clockInTime;
-  const isClockedOut = !!attendance?.clockOutTime;
+  const shiftLabel = attendance?.shiftDisplayName || '10:00 AM – 07:00 PM';
 
   return (
     <GradientView
@@ -208,8 +77,8 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
           </View>
           <View>
             <Text style={styles.title}>Today's Attendance</Text>
-            <Text style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.85)', fontWeight: '600', marginTop: 1 }}>
-              Shift: {attendance?.shiftDisplayName || '10:00 AM – 07:00 PM'}
+            <Text style={styles.shiftText}>
+              Shift: {shiftLabel}
             </Text>
           </View>
         </View>
@@ -218,7 +87,7 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
           <View
             style={[
               styles.workingBadge,
-              isClockedOut
+              isCompleted
                 ? styles.badgeCompleted
                 : isClockedIn
                 ? styles.badgeWorking
@@ -228,14 +97,14 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
             <Text
               style={[
                 styles.workingBadgeText,
-                isClockedOut
+                isCompleted
                   ? styles.badgeCompletedText
                   : isClockedIn
                   ? styles.badgeWorkingText
                   : styles.badgeNotClockedText,
               ]}
             >
-              {isClockedOut
+              {isCompleted
                 ? attendance?.status === 'HALF_DAY'
                   ? 'Half Day'
                   : 'Completed'
@@ -257,105 +126,85 @@ export const AttendanceCard: React.FC<AttendanceCardProps> = ({
       <View style={styles.metricsStrip}>
         <View style={styles.metricItem}>
           <Text style={styles.metricLabel}>Clock In</Text>
-          <Text style={styles.metricValue}>{formatAttendanceTime(attendance?.clockInTime)}</Text>
+          <Text style={styles.metricValue}>
+            {isLoading && !attendance ? '...' : formatAttendanceTime(attendance?.clockInTime)}
+          </Text>
         </View>
         <View style={styles.metricDivider} />
         <View style={styles.metricItem}>
           <Text style={styles.metricLabel}>Clock Out</Text>
-          <Text style={styles.metricValue}>{formatAttendanceTime(attendance?.clockOutTime)}</Text>
+          <Text style={styles.metricValue}>
+            {isLoading && !attendance ? '...' : formatAttendanceTime(attendance?.clockOutTime)}
+          </Text>
         </View>
         <View style={styles.metricDivider} />
         <View style={styles.metricItem}>
           <Text style={styles.metricLabel}>Duration</Text>
-          <Text style={styles.metricValue}>{liveDuration}</Text>
+          <Text style={styles.metricValue}>
+            {isLoading && !attendance ? '...' : liveDuration}
+          </Text>
         </View>
       </View>
 
-      {/* Bottom Buttons Row: 3 Strict Attendance States */}
+      {/* Action Button: Derived strictly from attendance state */}
       <View style={styles.actionRow}>
-        <TouchableOpacity
-          style={[
-            styles.checkInBtn,
-            isClockedOut
-              ? styles.btnLockedFaded
-              : isClockedIn
-              ? styles.checkInBtnClocked
-              : styles.checkInBtnReady,
-          ]}
-          onPress={handleClockIn}
-          disabled={isClockedIn || isClockedOut || loadingAction !== null}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name={isClockedIn ? 'checkmark-circle' : 'enter-outline'}
-            size={16}
-            color={
-              isClockedOut
-                ? 'rgba(255, 255, 255, 0.6)'
-                : isClockedIn
-                ? colors.attendanceCheckInActiveText
-                : '#1E40AF'
-            }
-          />
-          <Text
-            style={[
-              styles.btnText,
-              isClockedOut
-                ? styles.btnTextLocked
-                : isClockedIn
-                ? styles.checkInTextActive
-                : styles.checkInTextReady,
-            ]}
+        {isLoading && !attendance ? (
+          /* Loading Status Placeholder */
+          <View style={styles.loadingPlaceholder}>
+            <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+            <Text style={styles.loadingPlaceholderText}>Checking attendance status...</Text>
+          </View>
+        ) : isCompleted ? (
+          /* Session Completed State */
+          <View style={styles.completedBanner}>
+            <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 6 }} />
+            <Text style={styles.completedBannerText}>
+              {attendance?.status === 'HALF_DAY'
+                ? 'Half Day Session Recorded'
+                : 'Attendance Session Completed'}
+            </Text>
+          </View>
+        ) : isClockedIn ? (
+          /* Checked In State -> Primary [ CHECK OUT ] Button */
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.checkOutBtn, isSubmitting && styles.btnSubmitting]}
+            onPress={handleClockOut}
+            disabled={isSubmitting !== null}
+            activeOpacity={0.85}
           >
-            {loadingAction === 'clockIn'
-              ? 'Clocking In...'
-              : isClockedIn
-              ? 'Clocked In'
-              : 'Clock In'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.checkOutBtn,
-            isClockedOut
-              ? styles.btnLockedFaded
-              : isClockedIn
-              ? styles.checkOutBtnActiveReady
-              : styles.checkOutBtnDisabled,
-          ]}
-          onPress={handleClockOut}
-          disabled={!isClockedIn || isClockedOut || loadingAction !== null}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name={isClockedOut ? 'checkmark-circle' : 'exit-outline'}
-            size={16}
-            color={
-              isClockedOut
-                ? 'rgba(255, 255, 255, 0.6)'
-                : isClockedIn
-                ? '#FFFFFF'
-                : 'rgba(255, 255, 255, 0.5)'
-            }
-          />
-          <Text
-            style={[
-              styles.btnText,
-              isClockedOut
-                ? styles.btnTextLocked
-                : isClockedIn
-                ? styles.checkOutTextActive
-                : styles.checkOutTextDisabled,
-            ]}
+            {isSubmitting === 'clockOut' ? (
+              <View style={styles.btnInnerRow}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.btnText}>Clocking Out...</Text>
+              </View>
+            ) : (
+              <View style={styles.btnInnerRow}>
+                <Ionicons name="exit-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.btnText}>Clock Out</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        ) : (
+          /* Not Checked In State -> Primary [ CHECK IN ] Button (Emerald Green) */
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.checkInBtn, isSubmitting && styles.btnSubmitting]}
+            onPress={handleClockIn}
+            disabled={isSubmitting !== null}
+            activeOpacity={0.85}
           >
-            {loadingAction === 'clockOut'
-              ? 'Clocking Out...'
-              : isClockedOut
-              ? 'Clocked Out'
-              : 'Clock Out'}
-          </Text>
-        </TouchableOpacity>
+            {isSubmitting === 'clockIn' ? (
+              <View style={styles.btnInnerRow}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={[styles.btnText, styles.checkInBtnText]}>Clocking In...</Text>
+              </View>
+            ) : (
+              <View style={styles.btnInnerRow}>
+                <Ionicons name="enter-outline" size={18} color="#FFFFFF" />
+                <Text style={[styles.btnText, styles.checkInBtnText]}>Clock In</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
     </GradientView>
   );
@@ -396,6 +245,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.2,
+  },
+  shiftText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '600',
+    marginTop: 1,
   },
   headerRight: {
     flexDirection: 'row',
@@ -477,81 +332,82 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   actionRow: {
+    width: '100%',
+  },
+  actionBtn: {
+    width: '100%',
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnInnerRow: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   checkInBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
+    backgroundColor: '#059669',
     borderWidth: 1,
+    borderColor: '#10B981',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  checkInBtnText: {
+    color: '#FFFFFF',
   },
   checkOutBtn: {
-    flex: 1,
+    backgroundColor: '#DC2626',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  btnSubmitting: {
+    opacity: 0.75,
+  },
+  btnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  loadingPlaceholder: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    height: 42,
+    height: 44,
     borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1,
-  },
-  btnLockedFaded: {
-    opacity: 0.45,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderColor: 'rgba(255, 255, 255, 0.25)',
   },
-  btnTextLocked: {
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  checkInBtnReady: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-  },
-  checkInBtnClocked: {
-    opacity: 0.6,
-    backgroundColor: colors.attendanceCheckInActiveBg,
-    borderColor: colors.attendanceCheckInActiveBorder,
-  },
-  checkInTextReady: {
-    color: '#1E40AF',
-    fontWeight: '800',
-  },
-  checkInTextActive: {
-    color: colors.attendanceCheckInActiveText,
-  },
-  checkOutBtnActiveReady: {
-    backgroundColor: '#DC2626',
-    borderColor: '#EF4444',
-    elevation: 3,
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  checkOutBtnDisabled: {
-    opacity: 0.4,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  checkOutTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  checkOutTextDisabled: {
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  btnText: {
+  loadingPlaceholderText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  completedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
+  completedBannerText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });
