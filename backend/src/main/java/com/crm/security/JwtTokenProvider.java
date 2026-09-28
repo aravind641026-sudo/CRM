@@ -18,7 +18,7 @@ public class JwtTokenProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtTokenProvider.class);
 
-    @Value("${app.jwt.secret:9a4f2c8d3e5b7a1f6c8e0d2b4a6c8e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d}")
+    @Value("${app.jwt.secret:}")
     private String jwtSecret;
 
     @Value("${app.jwt.expiration-ms:86400000}")
@@ -28,6 +28,11 @@ public class JwtTokenProvider {
 
     @PostConstruct
     public void init() {
+        if (jwtSecret == null || jwtSecret.isBlank() || jwtSecret.startsWith("YOUR_")) {
+            logger.warn("No JWT_SECRET provided via environment variables. Generating a secure temporary in-memory key for this session.");
+            this.key = Jwts.SIG.HS256.key().build();
+            return;
+        }
         this.key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
 

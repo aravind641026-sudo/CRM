@@ -25,6 +25,9 @@ public class FirebaseConfig {
     @Value("${firebase.credentials-file:}")
     private String credentialsFile;
 
+    @Value("${firebase.credentials-json:}")
+    private String credentialsJson;
+
     private FirebaseApp firebaseApp;
     private FirebaseAuth firebaseAuth;
 
@@ -42,7 +45,13 @@ public class FirebaseConfig {
 
             InputStream credentialsStream = null;
 
-            if (credentialsFile != null && !credentialsFile.trim().isEmpty()) {
+            if (credentialsJson != null && !credentialsJson.trim().isEmpty() && !credentialsJson.startsWith("YOUR_")) {
+                logger.info("Initializing Firebase Admin SDK using credentials JSON from environment variable");
+                byte[] bytes = credentialsJson.trim().startsWith("{")
+                        ? credentialsJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                        : java.util.Base64.getDecoder().decode(credentialsJson.trim());
+                credentialsStream = new java.io.ByteArrayInputStream(bytes);
+            } else if (credentialsFile != null && !credentialsFile.trim().isEmpty() && !credentialsFile.startsWith("YOUR_")) {
                 File file = new File(credentialsFile);
                 if (file.exists()) {
                     logger.info("Initializing Firebase Admin SDK using credentials file: {}", file.getAbsolutePath());

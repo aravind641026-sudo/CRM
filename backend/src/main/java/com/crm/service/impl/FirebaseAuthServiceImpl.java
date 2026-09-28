@@ -24,7 +24,7 @@ public class FirebaseAuthServiceImpl implements FirebaseAuthService {
 
     private static final Logger logger = LoggerFactory.getLogger(FirebaseAuthServiceImpl.class);
 
-    @Value("${firebase.web-api-key:AIzaSyBFXGeQ0OytxoSKwgj8o1gdf7m7O0VwNEk}")
+    @Value("${firebase.web-api-key:}")
     private String webApiKey;
 
     private final com.crm.config.FirebaseConfig firebaseConfig;
@@ -58,6 +58,11 @@ public class FirebaseAuthServiceImpl implements FirebaseAuthService {
             } catch (Exception ex) {
                 logger.warn("Admin SDK createUser error: {}. Attempting REST fallback...", ex.getMessage());
             }
+        }
+
+        if (webApiKey == null || webApiKey.isBlank() || webApiKey.startsWith("YOUR_")) {
+            logger.warn("No valid FIREBASE_WEB_API_KEY configured. Skipping Firebase REST user provisioning.");
+            return null;
         }
 
         // 2. Identity Toolkit REST API with retry

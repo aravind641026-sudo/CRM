@@ -4,6 +4,16 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Environment & Secrets ###
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+service-account*.json
+firebase-credentials*.json
+firebase-service-account*.json
+
 ### STS ###
 .apt_generated
 .classpath
