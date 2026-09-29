@@ -11,6 +11,7 @@ import com.crm.exception.ResourceNotFoundException;
 import com.crm.mapper.UserMapper;
 import com.crm.model.AuditLog;
 import com.crm.model.LeadAssignment;
+import com.crm.model.Notification;
 import com.crm.model.Role;
 import com.crm.model.Sale;
 import com.crm.model.User;
@@ -19,6 +20,7 @@ import com.crm.service.AuditService;
 import com.crm.service.FirebaseAuthService;
 import com.crm.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
@@ -102,6 +105,157 @@ public class UserServiceImpl implements UserService {
                 "Name: " + saved.getName() + ", Role: " + saved.getRole().getName() + ", Shift: " + saved.getShift().getDisplayName());
 
         return userMapper.toResponse(saved, 0, 0);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse registerUser(com.crm.dto.request.UserSignupRequest request) {
+        String cleanEmail = request.getEmail().toLowerCase().trim();
+        if (userRepository.existsByEmail(cleanEmail)) {
+            throw new DuplicateResourceException("An account with email " + cleanEmail + " already exists.");
+        }
+
+        Role userRole = roleRepository.findByName("ROLE_USER")
+                .orElseGet(() -> roleRepository.save(Role.builder().name("ROLE_USER").build()));
+
+        com.crm.model.WorkShift workShift = (request.getShift() != null && !request.getShift().isBlank())
+                ? com.crm.model.WorkShift.fromString(request.getShift())
+                : com.crm.model.WorkShift.SHIFT_1000_1900;
+
+        String rawPassword = request.getPassword();
+        String firebaseUid = null;
+        try {
+            firebaseUid = firebaseAuthService.createFirebaseUser(cleanEmail, rawPassword, request.getName());
+        } catch (Exception e) {
+            log.warn("Firebase user provisioning skipped or deferred: {}", e.getMessage());
+        }
+
+        User user = User.builder()
+                .name(request.getName().trim())
+                .email(cleanEmail)
+                .phone(request.getPhone() != null ? request.getPhone().trim() : null)
+                .password(passwordEncoder.encode(rawPassword))
+                .firebaseUid(firebaseUid)
+                .role(userRole)
+                .status("PENDING")
+                .shift(workShift)
+                .build();
+
+        User saved = userRepository.save(user);
+
+        // Create Admin Notification for Pending Signup
+        try {
+            List<User> admins = userRepository.findAll().stream()
+                    .filter(u -> u.getRole() != null && "ROLE_ADMIN".equalsIgnoreCase(u.getRole().getName()))
+                    .toList();
+            for (User admin : admins) {
+                notificationRepository.save(Notification.builder()
+                        .user(admin)
+                        .type("SIGNUP_REQUEST")
+                        .title("New User Signup Request")
+                        .message("New user " + saved.getName() + " (" + saved.getEmail() + ") registered and is awaiting approval.")
+                        .referenceId(saved.getId())
+                        .referenceType("USER_SIGNUP")
+                        .status("PENDING")
+                        .isRead(false)
+                        .build());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to create admin notification for user signup: {}", e.getMessage());
+        }
+
+        auditService.logAction(null, "User", saved.getId(), "SIGNUP_REQUEST", null,
+                "Name: " + saved.getName() + ", Email: " + saved.getEmail() + ", Status: PENDING");
+
+        return userMapper.toResponse(saved, 0, 0);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<UserResponse> getPendingSignups(Pageable pageable) {
+        return userRepository.findByStatus("PENDING", pageable)
+                .map(user -> userMapper.toResponse(user, 0, 0));
+    }
+
+    @Override
+    @Transactional
+    public UserResponse approveSignup(Long userId, Long adminUserId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        String oldStatus = user.getStatus();
+        user.setStatus("ACTIVE");
+        User updated = userRepository.save(user);
+
+        auditService.logAction(adminUserId, "User", updated.getId(), "SIGNUP_APPROVED", oldStatus, "ACTIVE");
+
+        try {
+            notificationRepository.save(Notification.builder()
+                    .user(updated)
+                    .type("SIGNUP_APPROVED")
+                    .title("Account Approved")
+                    .message("Your account has been approved by admin. You can now login.")
+                    .referenceId(updated.getId())
+                    .referenceType("USER_SIGNUP")
+                    .status("ACTIVE")
+                    .isRead(false)
+                    .build());
+
+            // Also update any admin notification for this signup request
+            List<Notification> adminNotifs = notificationRepository.findAll().stream()
+                    .filter(n -> "SIGNUP_REQUEST".equalsIgnoreCase(n.getType()) && userId.equals(n.getReferenceId()))
+                    .toList();
+            for (Notification n : adminNotifs) {
+                n.setStatus("APPROVED");
+                n.setIsRead(true);
+            }
+            notificationRepository.saveAll(adminNotifs);
+        } catch (Exception e) {
+            log.warn("Failed to update signup notification: {}", e.getMessage());
+        }
+
+        long activeLeads = leadAssignmentRepository.countByUserIdAndIsActiveTrue(updated.getId());
+        return userMapper.toResponse(updated, activeLeads, 0);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse rejectSignup(Long userId, Long adminUserId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        String oldStatus = user.getStatus();
+        user.setStatus("REJECTED");
+        User updated = userRepository.save(user);
+
+        auditService.logAction(adminUserId, "User", updated.getId(), "SIGNUP_REJECTED", oldStatus, "REJECTED");
+
+        try {
+            List<Notification> adminNotifs = notificationRepository.findAll().stream()
+                    .filter(n -> "SIGNUP_REQUEST".equalsIgnoreCase(n.getType()) && userId.equals(n.getReferenceId()))
+                    .toList();
+            for (Notification n : adminNotifs) {
+                n.setStatus("REJECTED");
+                n.setIsRead(true);
+            }
+            notificationRepository.saveAll(adminNotifs);
+        } catch (Exception e) {
+            log.warn("Failed to update admin signup notification: {}", e.getMessage());
+        }
+
+        long activeLeads = leadAssignmentRepository.countByUserIdAndIsActiveTrue(updated.getId());
+        return userMapper.toResponse(updated, activeLeads, 0);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String getSignupStatus(String email) {
+        if (email == null || email.isBlank()) {
+            return "NOT_FOUND";
+        }
+        return userRepository.findByEmail(email.toLowerCase().trim())
+                .map(User::getStatus)
+                .orElse("NOT_FOUND");
     }
 
     @Override

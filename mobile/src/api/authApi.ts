@@ -11,6 +11,29 @@ export const authApi = {
     return payload;
   },
 
+  signup: async (data: {
+    name: string;
+    email: string;
+    phone?: string;
+    password: string;
+  }): Promise<{ message: string; user?: User }> => {
+    const res = await apiClient.post<any>('/auth/signup', {
+      name: data.name.trim(),
+      email: data.email.toLowerCase().trim(),
+      phone: data.phone?.trim() || undefined,
+      password: data.password,
+    });
+    return {
+      message: res.data?.message || 'Your signup request has been submitted successfully. Please wait for admin approval.',
+      user: res.data?.data,
+    };
+  },
+
+  checkSignupStatus: async (email: string): Promise<{ status: string; message: string }> => {
+    const res = await apiClient.get<any>(`/auth/signup-status?email=${encodeURIComponent(email.toLowerCase().trim())}`);
+    return res.data?.data || res.data;
+  },
+
   getCurrentUser: async (): Promise<User> => {
     const res = await apiClient.get<ApiResponse<User>>('/auth/me');
     return res.data.data;

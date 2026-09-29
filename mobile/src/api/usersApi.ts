@@ -62,6 +62,26 @@ export const usersApi = {
     return res.data.data;
   },
 
+  getPendingSignups: async (params?: { page?: number; size?: number }): Promise<PageResponse<User>> => {
+    const res = await apiClient.get<ApiResponse<PageResponse<User>>>('/users/pending-signups', {
+      params: {
+        page: params?.page ?? 0,
+        size: params?.size ?? 50,
+      },
+    });
+    return res.data.data;
+  },
+
+  approveSignup: async (id: number): Promise<User> => {
+    const res = await apiClient.post<ApiResponse<User>>(`/users/${id}/approve`);
+    return res.data.data;
+  },
+
+  rejectSignup: async (id: number): Promise<User> => {
+    const res = await apiClient.post<ApiResponse<User>>(`/users/${id}/reject`);
+    return res.data.data;
+  },
+
   deleteUser: async (id: number): Promise<string> => {
     const res = await apiClient.delete<ApiResponse<string>>(`/users/${id}`);
     return res.data.message || res.data.data || 'User deleted successfully.';

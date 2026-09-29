@@ -125,7 +125,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return !"INACTIVE".equalsIgnoreCase(status);
+        return !"INACTIVE".equalsIgnoreCase(status) && !"REJECTED".equalsIgnoreCase(status);
     }
 
     @Override
@@ -135,7 +135,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return "ACTIVE".equalsIgnoreCase(status);
+        return "ACTIVE".equalsIgnoreCase(status) || "APPROVED".equalsIgnoreCase(status);
     }
 
     public boolean isAdmin() {

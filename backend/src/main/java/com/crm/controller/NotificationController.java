@@ -4,6 +4,7 @@ import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.NotificationResponse;
 import com.crm.model.AuditLog;
 import com.crm.repository.AuditLogRepository;
+import com.crm.repository.NotificationRepository;
 import com.crm.repository.RoleRepository;
 import com.crm.repository.ShiftChangeRequestRepository;
 import com.crm.repository.UserRepository;
@@ -31,6 +32,7 @@ public class NotificationController {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final NotificationService notificationService;
+    private final NotificationRepository notificationRepository;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> getUserNotifications(@CurrentUser UserPrincipal principal) {
@@ -54,10 +56,66 @@ public class NotificationController {
 
     @GetMapping("/admin")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<NotificationResponse>>> getAdminNotifications() {
+    public ResponseEntity<ApiResponse<List<NotificationResponse>>> getAdminNotifications(@CurrentUser UserPrincipal principal) {
         List<NotificationResponse> list = new ArrayList<>();
 
-        // 1. Shift Change Requests
+        // 1. User Signup Requests (Both PENDING and recently actioned)
+        List<com.crm.model.User> signupUsers = userRepository.findAll().stream()
+                .filter(u -> u.getStatus() != null && ("PENDING".equalsIgnoreCase(u.getStatus()) || "REJECTED".equalsIgnoreCase(u.getStatus())))
+                .sorted(Comparator.comparing(com.crm.model.User::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(30)
+                .toList();
+
+        for (com.crm.model.User u : signupUsers) {
+            if (u.getRole() != null && "ROLE_ADMIN".equalsIgnoreCase(u.getRole().getName())) {
+                continue;
+            }
+            boolean isPending = "PENDING".equalsIgnoreCase(u.getStatus());
+            String title = isPending
+                    ? "New User Signup: " + u.getName()
+                    : "User Signup (" + u.getStatus() + "): " + u.getName();
+
+            String phoneInfo = (u.getPhone() != null && !u.getPhone().isBlank()) ? " • " + u.getPhone() : "";
+            String msg = u.getName() + " (" + u.getEmail() + phoneInfo + ") has requested CRM access."
+                    + (isPending ? " Status: PENDING admin approval." : " Status: " + u.getStatus() + ".");
+
+            list.add(NotificationResponse.builder()
+                    .id("signup-user-" + u.getId())
+                    .type("SIGNUP_REQUEST")
+                    .title(title)
+                    .message(msg)
+                    .createdAt(u.getCreatedAt() != null ? u.getCreatedAt() : LocalDateTime.now())
+                    .read(!isPending)
+                    .status(u.getStatus())
+                    .referenceId(u.getId())
+                    .referenceType("UserSignup")
+                    .build());
+        }
+
+        // Also include stored admin notifications of type SIGNUP_REQUEST / SIGNUP_APPROVED / SIGNUP_REJECTED
+        if (principal != null) {
+            List<com.crm.model.Notification> adminDbNotifs = notificationRepository.findByUserIdOrderByCreatedAtDesc(principal.getId());
+            for (com.crm.model.Notification n : adminDbNotifs) {
+                if (n.getType() != null && n.getType().startsWith("SIGNUP_") && n.getReferenceId() != null) {
+                    boolean alreadyInList = list.stream().anyMatch(item -> ("signup-user-" + n.getReferenceId()).equals(item.getId()));
+                    if (!alreadyInList) {
+                        list.add(NotificationResponse.builder()
+                                .id("notif-" + n.getId())
+                                .type(n.getType())
+                                .title(n.getTitle())
+                                .message(n.getMessage())
+                                .createdAt(n.getCreatedAt() != null ? n.getCreatedAt() : LocalDateTime.now())
+                                .read(Boolean.TRUE.equals(n.getIsRead()))
+                                .status(n.getStatus() != null ? n.getStatus() : "INFO")
+                                .referenceId(n.getReferenceId())
+                                .referenceType(n.getReferenceType() != null ? n.getReferenceType() : "UserSignup")
+                                .build());
+                    }
+                }
+            }
+        }
+
+        // 2. Shift Change Requests
         List<com.crm.model.ShiftChangeRequest> shiftRequests = shiftChangeRequestRepository.findAllByOrderByRequestedAtDesc();
         for (com.crm.model.ShiftChangeRequest sr : shiftRequests) {
             String requesterName = sr.getUser() != null ? sr.getUser().getName() : "A user";

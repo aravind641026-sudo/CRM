@@ -23,9 +23,10 @@ import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { FilterSheetModal } from '../../components/common/FilterSheetModal';
 import { notificationApi } from '../../api/notificationApi';
 import { shiftApi } from '../../api/shiftApi';
+import { usersApi } from '../../api/usersApi';
 import { AdminNotification } from '../../types';
 
-type CategoryFilter = 'ALL' | 'SHIFTS' | 'ASSIGNMENTS' | 'SYSTEM';
+type CategoryFilter = 'ALL' | 'SIGNUPS' | 'SHIFTS' | 'ASSIGNMENTS' | 'SYSTEM';
 type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export const AdminNotificationsScreen: React.FC = () => {
@@ -132,9 +133,58 @@ export const AdminNotificationsScreen: React.FC = () => {
     );
   };
 
+  const handleReviewSignup = async (
+    item: AdminNotification,
+    decision: 'APPROVED' | 'REJECTED'
+  ) => {
+    if (!item.referenceId) return;
+
+    const actionText = decision === 'APPROVED' ? 'approve' : 'reject';
+    Alert.alert(
+      `${decision === 'APPROVED' ? 'Approve' : 'Reject'} User Signup`,
+      `Are you sure you want to ${actionText} this user's registration request?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: decision === 'APPROVED' ? 'Approve' : 'Reject',
+          style: decision === 'REJECTED' ? 'destructive' : 'default',
+          onPress: async () => {
+            setProcessingId(item.id);
+            try {
+              if (decision === 'APPROVED') {
+                await usersApi.approveSignup(item.referenceId!);
+              } else {
+                await usersApi.rejectSignup(item.referenceId!);
+              }
+              setNotifications((prev) =>
+                prev.map((n) =>
+                  n.id === item.id ? { ...n, status: decision, read: true } : n
+                )
+              );
+              Alert.alert(
+                'Success',
+                `User signup has been ${decision === 'APPROVED' ? 'approved' : 'rejected'}.`
+              );
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Unable to process signup request.');
+            } finally {
+              setProcessingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const filteredNotifications = useMemo(() => {
     return notifications.filter((item) => {
       // Category filter
+      if (
+        categoryFilter === 'SIGNUPS' &&
+        item.type !== 'SIGNUP_REQUEST' &&
+        item.type !== 'USER_SIGNUP'
+      )
+        return false;
       if (categoryFilter === 'SHIFTS' && item.type !== 'SHIFT_CHANGE_REQUEST') return false;
       if (
         categoryFilter === 'ASSIGNMENTS' &&
@@ -176,6 +226,13 @@ export const AdminNotificationsScreen: React.FC = () => {
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case 'SIGNUP_REQUEST':
+      case 'USER_SIGNUP':
+        return { name: 'person-add', variant: 'orange' as const };
+      case 'SIGNUP_APPROVED':
+        return { name: 'checkmark-circle', variant: 'green' as const };
+      case 'SIGNUP_REJECTED':
+        return { name: 'close-circle', variant: 'purple' as const };
       case 'SHIFT_CHANGE_REQUEST':
         return { name: 'time', variant: 'purple' as const };
       case 'LEAD_ASSIGNMENT':
@@ -192,6 +249,7 @@ export const AdminNotificationsScreen: React.FC = () => {
   const renderItem = ({ item }: { item: AdminNotification }) => {
     const iconConfig = getNotificationIcon(item.type);
     const isShift = item.type === 'SHIFT_CHANGE_REQUEST';
+    const isSignup = item.type === 'SIGNUP_REQUEST' || item.type === 'USER_SIGNUP';
     const isPending = item.status === 'PENDING';
     const isProcessing = processingId === item.id;
 
@@ -217,11 +275,11 @@ export const AdminNotificationsScreen: React.FC = () => {
             </View>
           </View>
 
-          {isShift && (
+          {(isShift || isSignup) && (
             <View
               style={[
                 styles.statusBadge,
-                item.status === 'APPROVED'
+                item.status === 'APPROVED' || item.status === 'ACTIVE'
                   ? styles.statusApproved
                   : item.status === 'REJECTED'
                   ? styles.statusRejected
@@ -231,7 +289,7 @@ export const AdminNotificationsScreen: React.FC = () => {
               <Text
                 style={[
                   styles.statusBadgeText,
-                  item.status === 'APPROVED'
+                  item.status === 'APPROVED' || item.status === 'ACTIVE'
                     ? styles.statusTextApproved
                     : item.status === 'REJECTED'
                     ? styles.statusTextRejected
@@ -271,6 +329,38 @@ export const AdminNotificationsScreen: React.FC = () => {
                 <TouchableOpacity
                   style={styles.approveBtn}
                   onPress={() => handleReviewShiftChange(item, 'APPROVED')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.approveBtnText}>Approve</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Action buttons for pending user signup requests */}
+        {isSignup && isPending && (
+          <View style={styles.actionsFooter}>
+            {isProcessing ? (
+              <View style={styles.processingRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.processingText}>Processing request...</Text>
+              </View>
+            ) : (
+              <View style={styles.actionButtonsRow}>
+                <TouchableOpacity
+                  style={styles.rejectBtn}
+                  onPress={() => handleReviewSignup(item, 'REJECTED')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+                  <Text style={styles.rejectBtnText}>Reject</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.approveBtn}
+                  onPress={() => handleReviewSignup(item, 'APPROVED')}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
@@ -378,6 +468,7 @@ export const AdminNotificationsScreen: React.FC = () => {
             <View style={styles.filterChipRow}>
               {[
                 { id: 'ALL' as const, label: 'All Categories' },
+                { id: 'SIGNUPS' as const, label: 'User Signups' },
                 { id: 'SHIFTS' as const, label: 'Shift Requests' },
                 { id: 'ASSIGNMENTS' as const, label: 'Lead Assignments' },
                 { id: 'SYSTEM' as const, label: 'System & Projects' },

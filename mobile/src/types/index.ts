@@ -4,7 +4,7 @@ export interface User {
   email: string;
   phone?: string;
   role: string; // 'ROLE_ADMIN' | 'ROLE_USER'
-  status: 'ACTIVE' | 'INACTIVE';
+  status: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'REJECTED' | 'APPROVED' | string;
   shift?: string;
   shiftDisplayName?: string;
   shiftStartTime?: string;

@@ -26,12 +26,60 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
     private final UserService userService;
+    private final com.crm.repository.UserRepository userRepository;
+
+    @PostMapping("/signup")
+    public ResponseEntity<ApiResponse<UserResponse>> signupUser(@Valid @RequestBody com.crm.dto.request.UserSignupRequest signupRequest) {
+        UserResponse response = userService.registerUser(signupRequest);
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(ApiResponse.ok("Your signup request has been submitted successfully. Please wait for admin approval.", response));
+    }
+
+    @GetMapping("/signup-status")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> checkSignupStatus(@RequestParam String email) {
+        String status = userService.getSignupStatus(email);
+        String message;
+        switch (status.toUpperCase()) {
+            case "PENDING":
+                message = "Your account is waiting for admin approval.";
+                break;
+            case "ACTIVE":
+            case "APPROVED":
+                message = "Your account has been approved. You can now login.";
+                break;
+            case "REJECTED":
+                message = "Your signup request was rejected. Please contact the administrator.";
+                break;
+            case "INACTIVE":
+                message = "Your account is inactive. Please contact the administrator.";
+                break;
+            default:
+                message = "No account found with this email.";
+                break;
+        }
+        java.util.Map<String, String> result = java.util.Map.of("email", email, "status", status, "message", message);
+        return ResponseEntity.ok(ApiResponse.ok(message, result));
+    }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<JwtAuthResponse>> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
+        String cleanEmail = loginRequest.getEmail().toLowerCase().trim();
+        com.crm.model.User user = userRepository.findByEmail(cleanEmail).orElse(null);
+        if (user != null) {
+            if ("PENDING".equalsIgnoreCase(user.getStatus())) {
+                throw new com.crm.exception.BusinessException("Your account is waiting for admin approval.");
+            }
+            if ("REJECTED".equalsIgnoreCase(user.getStatus())) {
+                throw new com.crm.exception.BusinessException("Your signup request was rejected. Please contact the administrator.");
+            }
+            if ("INACTIVE".equalsIgnoreCase(user.getStatus())) {
+                throw new com.crm.exception.BusinessException("Your account is inactive. Please contact the administrator.");
+            }
+        }
+
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        loginRequest.getEmail().toLowerCase().trim(),
+                        cleanEmail,
                         loginRequest.getPassword()
                 )
         );

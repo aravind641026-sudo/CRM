@@ -25,17 +25,31 @@ import { colors } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../types';
 import { getApiBaseUrl, setApiBaseUrl } from '../../api/client';
+import { authApi } from '../../api/authApi';
 import { STORAGE_KEYS } from '../../config/constants';
 
 export const LoginScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { login } = useAuth();
 
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+
+  // Sign In State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Sign Up State
+  const [signupName, setSignupName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPhone, setSignupPhone] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [signupSuccessMessage, setSignupSuccessMessage] = useState('');
+  const [submittingSignup, setSubmittingSignup] = useState(false);
 
   // Server settings modal state
   const [showServerModal, setShowServerModal] = useState(false);
@@ -43,11 +57,16 @@ export const LoginScreen: React.FC = () => {
   const [testStatus, setTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string }>({ loading: false });
 
   // Focused state for input border highlight
-  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   // Input Refs for instant tap-to-focus on entire input box container
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
+  const signupNameRef = useRef<TextInput>(null);
+  const signupEmailRef = useRef<TextInput>(null);
+  const signupPhoneRef = useRef<TextInput>(null);
+  const signupPasswordRef = useRef<TextInput>(null);
+  const signupConfirmPasswordRef = useRef<TextInput>(null);
 
   // 1. Top Wave slow drift animation (24s cycle)
   const topWaveTranslateX = useRef(new Animated.Value(0)).current;
@@ -288,6 +307,56 @@ export const LoginScreen: React.FC = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSignup = async () => {
+    if (!signupName.trim()) {
+      setErrorMessage('Full name is required.');
+      return;
+    }
+    if (!signupEmail.trim() || !signupEmail.includes('@')) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+    if (signupPassword.length < 6) {
+      setErrorMessage('Password must be at least 6 characters.');
+      return;
+    }
+    if (signupPassword !== signupConfirmPassword) {
+      setErrorMessage('Passwords do not match.');
+      return;
+    }
+
+    setSubmittingSignup(true);
+    setErrorMessage('');
+    setSignupSuccessMessage('');
+
+    try {
+      const res = await authApi.signup({
+        name: signupName.trim(),
+        email: signupEmail.trim().toLowerCase(),
+        phone: signupPhone.trim() || undefined,
+        password: signupPassword,
+      });
+
+      const successMsg = res.message || 'Your signup request has been submitted successfully. Please wait for admin approval.';
+      setSignupSuccessMessage(successMsg);
+      setEmail(signupEmail.trim().toLowerCase());
+      setPassword('');
+      setSignupName('');
+      setSignupPhone('');
+      setSignupPassword('');
+      setSignupConfirmPassword('');
+      setAuthMode('signin');
+      Alert.alert(
+        'Request Submitted',
+        'Your signup request has been submitted successfully. Please wait for admin approval before logging in.'
+      );
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Signup request failed. Please try again.');
+    } finally {
+      setSubmittingSignup(false);
     }
   };
 
@@ -549,11 +618,78 @@ export const LoginScreen: React.FC = () => {
 
               {/* Title & Subtitle */}
               <Text style={styles.brandTitle}>Calling CRM</Text>
-              <Text style={styles.brandSubtitle}>Sign in to your account</Text>
+              <Text style={styles.brandSubtitle}>
+                {authMode === 'signin' ? 'Sign in to your account' : 'Request normal user access'}
+              </Text>
             </View>
 
-            {/* Login Card */}
+            {/* Login / Signup Card */}
             <View style={styles.card}>
+              {/* Tab Switcher: Sign In vs Sign Up */}
+              <View style={styles.tabSwitcher}>
+                <TouchableOpacity
+                  style={[styles.tabButton, authMode === 'signin' && styles.tabButtonActive]}
+                  onPress={() => {
+                    setAuthMode('signin');
+                    setErrorMessage('');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  {authMode === 'signin' ? (
+                    <LinearGradient
+                      colors={['#3B82F6', '#8B5CF6']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.tabGradient}
+                    >
+                      <Ionicons name="log-in-outline" size={16} color="#FFFFFF" />
+                      <Text style={styles.tabButtonTextActive}>Sign In</Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.tabInactiveContent}>
+                      <Ionicons name="log-in-outline" size={16} color="#64748B" />
+                      <Text style={styles.tabButtonTextInactive}>Sign In</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.tabButton, authMode === 'signup' && styles.tabButtonActive]}
+                  onPress={() => {
+                    setAuthMode('signup');
+                    setErrorMessage('');
+                    setSignupSuccessMessage('');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  {authMode === 'signup' ? (
+                    <LinearGradient
+                      colors={['#8B5CF6', '#EC4899']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.tabGradient}
+                    >
+                      <Ionicons name="person-add-outline" size={16} color="#FFFFFF" />
+                      <Text style={styles.tabButtonTextActive}>Sign Up</Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.tabInactiveContent}>
+                      <Ionicons name="person-add-outline" size={16} color="#64748B" />
+                      <Text style={styles.tabButtonTextInactive}>Sign Up</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Success Message Banner */}
+              {signupSuccessMessage ? (
+                <View style={styles.successContainer}>
+                  <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                  <Text style={styles.successText}>{signupSuccessMessage}</Text>
+                </View>
+              ) : null}
+
+              {/* Error Message Banner */}
               {errorMessage ? (
                 <View style={styles.errorContainer}>
                   <Ionicons name="alert-circle" size={16} color={colors.danger} />
@@ -561,129 +697,376 @@ export const LoginScreen: React.FC = () => {
                 </View>
               ) : null}
 
-              {/* Email Address Field */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email Address</Text>
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={() => emailInputRef.current?.focus()}
-                  style={[
-                    styles.inputBox,
-                    focusedField === 'email' && styles.inputBoxFocused,
-                  ]}
-                >
-                  <View style={styles.inputIconBox} pointerEvents="none">
-                    <Ionicons name="mail-outline" size={19} color="#8B5CF6" />
+              {authMode === 'signin' ? (
+                /* ======================================================= */
+                /* SIGN IN FORM                                            */
+                /* ======================================================= */
+                <View>
+                  {/* Email Address Field */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Email Address</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => emailInputRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'email' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="mail-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={emailInputRef}
+                        style={styles.textInputField}
+                        placeholder="agent@crm.com"
+                        placeholderTextColor="#94A3B8"
+                        value={email}
+                        onChangeText={(t) => {
+                          setEmail(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('email')}
+                        onBlur={() => setFocusedField(null)}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        spellCheck={false}
+                        importantForAutofill="no"
+                        underlineColorAndroid="transparent"
+                        editable={!loading}
+                      />
+                    </TouchableOpacity>
                   </View>
-                  <TextInput
-                    ref={emailInputRef}
-                    style={styles.textInputField}
-                    placeholder="agent@crm.com"
-                    placeholderTextColor="#94A3B8"
-                    value={email}
-                    onChangeText={(t) => {
-                      setEmail(t);
-                      if (errorMessage) setErrorMessage('');
-                    }}
-                    onFocus={() => setFocusedField('email')}
-                    onBlur={() => setFocusedField(null)}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    importantForAutofill="no"
-                    underlineColorAndroid="transparent"
-                    editable={!loading}
-                  />
-                </TouchableOpacity>
-              </View>
 
-              {/* Password Field */}
-              <View style={[styles.inputGroup, { marginTop: 14 }]}>
-                <Text style={styles.inputLabel}>Password</Text>
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={() => passwordInputRef.current?.focus()}
-                  style={[
-                    styles.inputBox,
-                    focusedField === 'password' && styles.inputBoxFocused,
-                  ]}
-                >
-                  <View style={styles.inputIconBox} pointerEvents="none">
-                    <Ionicons name="lock-closed-outline" size={19} color="#8B5CF6" />
+                  {/* Password Field */}
+                  <View style={[styles.inputGroup, { marginTop: 14 }]}>
+                    <Text style={styles.inputLabel}>Password</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => passwordInputRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'password' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="lock-closed-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={passwordInputRef}
+                        style={styles.textInputField}
+                        placeholder="••••••••"
+                        placeholderTextColor="#94A3B8"
+                        value={password}
+                        onChangeText={(t) => {
+                          setPassword(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('password')}
+                        onBlur={() => setFocusedField(null)}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        spellCheck={false}
+                        importantForAutofill="no"
+                        underlineColorAndroid="transparent"
+                        editable={!loading}
+                      />
+                      <TouchableOpacity
+                        style={styles.eyeToggleBtn}
+                        onPress={() => setShowPassword((prev) => !prev)}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={20}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
                   </View>
-                  <TextInput
-                    ref={passwordInputRef}
-                    style={styles.textInputField}
-                    placeholder="••••••••"
-                    placeholderTextColor="#94A3B8"
-                    value={password}
-                    onChangeText={(t) => {
-                      setPassword(t);
-                      if (errorMessage) setErrorMessage('');
-                    }}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    importantForAutofill="no"
-                    underlineColorAndroid="transparent"
-                    editable={!loading}
-                  />
+
+                  {/* Sign In CTA Button */}
                   <TouchableOpacity
-                    style={styles.eyeToggleBtn}
-                    onPress={() => setShowPassword((prev) => !prev)}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons
-                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                      size={20}
-                      color="#94A3B8"
-                    />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              </View>
-
-              {/* Sign In CTA Button */}
-              <TouchableOpacity
-                style={styles.signInButton}
-                onPress={handleLogin}
-                activeOpacity={0.88}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={['#3B82F6', '#8B5CF6', '#EC4899']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.signInGradient}
-                >
-                  <Text style={styles.signInText}>
-                    {loading ? 'Signing In...' : 'Sign In'}
-                  </Text>
-                  <View style={styles.arrowBadge}>
-                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-                  </View>
-
-                  {/* Shimmer sweep effect */}
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[
-                      styles.btnShimmerBeam,
-                      { transform: [{ translateX: btnShimmerTranslate }] },
-                    ]}
+                    style={styles.signInButton}
+                    onPress={handleLogin}
+                    activeOpacity={0.88}
+                    disabled={loading}
                   >
                     <LinearGradient
-                      colors={['transparent', 'rgba(255, 255, 255, 0.35)', 'transparent']}
+                      colors={['#3B82F6', '#8B5CF6', '#EC4899']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={styles.shimmerFill}
-                    />
-                  </Animated.View>
-                </LinearGradient>
-              </TouchableOpacity>
+                      style={styles.signInGradient}
+                    >
+                      <Text style={styles.signInText}>
+                        {loading ? 'Signing In...' : 'Sign In'}
+                      </Text>
+                      <View style={styles.arrowBadge}>
+                        <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                      </View>
+
+                      {/* Shimmer sweep effect */}
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          styles.btnShimmerBeam,
+                          { transform: [{ translateX: btnShimmerTranslate }] },
+                        ]}
+                      >
+                        <LinearGradient
+                          colors={['transparent', 'rgba(255, 255, 255, 0.35)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.shimmerFill}
+                        />
+                      </Animated.View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Switch to Signup Link */}
+                  <TouchableOpacity
+                    style={styles.switchModeLink}
+                    onPress={() => {
+                      setAuthMode('signup');
+                      setErrorMessage('');
+                      setSignupSuccessMessage('');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.switchModeText}>
+                      Don't have an account? <Text style={styles.switchModeHighlight}>Sign Up</Text>
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                /* ======================================================= */
+                /* SIGN UP FORM (NORMAL USER REGISTRATION)                 */
+                /* ======================================================= */
+                <View>
+                  <View style={styles.signupNoticeBox}>
+                    <Ionicons name="shield-checkmark" size={15} color="#8B5CF6" />
+                    <Text style={styles.signupNoticeText}>
+                      Normal User Signup • Requires Admin approval before login access is granted.
+                    </Text>
+                  </View>
+
+                  {/* Full Name */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Full Name *</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => signupNameRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'signupName' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="person-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={signupNameRef}
+                        style={styles.textInputField}
+                        placeholder="e.g. Rahul Sharma"
+                        placeholderTextColor="#94A3B8"
+                        value={signupName}
+                        onChangeText={(t) => {
+                          setSignupName(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('signupName')}
+                        onBlur={() => setFocusedField(null)}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        editable={!submittingSignup}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Email Address */}
+                  <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                    <Text style={styles.inputLabel}>Email Address *</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => signupEmailRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'signupEmail' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="mail-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={signupEmailRef}
+                        style={styles.textInputField}
+                        placeholder="user@crm.com"
+                        placeholderTextColor="#94A3B8"
+                        value={signupEmail}
+                        onChangeText={(t) => {
+                          setSignupEmail(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('signupEmail')}
+                        onBlur={() => setFocusedField(null)}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!submittingSignup}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Phone Number */}
+                  <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                    <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => signupPhoneRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'signupPhone' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="call-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={signupPhoneRef}
+                        style={styles.textInputField}
+                        placeholder="+91 98765 43210"
+                        placeholderTextColor="#94A3B8"
+                        value={signupPhone}
+                        onChangeText={(t) => {
+                          setSignupPhone(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('signupPhone')}
+                        onBlur={() => setFocusedField(null)}
+                        keyboardType="phone-pad"
+                        editable={!submittingSignup}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Password */}
+                  <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                    <Text style={styles.inputLabel}>Password (Min 6 Characters) *</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => signupPasswordRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'signupPassword' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="lock-closed-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={signupPasswordRef}
+                        style={styles.textInputField}
+                        placeholder="••••••••"
+                        placeholderTextColor="#94A3B8"
+                        value={signupPassword}
+                        onChangeText={(t) => {
+                          setSignupPassword(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('signupPassword')}
+                        onBlur={() => setFocusedField(null)}
+                        secureTextEntry={!showSignupPassword}
+                        autoCapitalize="none"
+                        editable={!submittingSignup}
+                      />
+                      <TouchableOpacity
+                        style={styles.eyeToggleBtn}
+                        onPress={() => setShowSignupPassword((prev) => !prev)}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons
+                          name={showSignupPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={20}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Confirm Password */}
+                  <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                    <Text style={styles.inputLabel}>Confirm Password *</Text>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={() => signupConfirmPasswordRef.current?.focus()}
+                      style={[
+                        styles.inputBox,
+                        focusedField === 'signupConfirmPassword' && styles.inputBoxFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconBox} pointerEvents="none">
+                        <Ionicons name="shield-checkmark-outline" size={19} color="#8B5CF6" />
+                      </View>
+                      <TextInput
+                        ref={signupConfirmPasswordRef}
+                        style={styles.textInputField}
+                        placeholder="••••••••"
+                        placeholderTextColor="#94A3B8"
+                        value={signupConfirmPassword}
+                        onChangeText={(t) => {
+                          setSignupConfirmPassword(t);
+                          if (errorMessage) setErrorMessage('');
+                        }}
+                        onFocus={() => setFocusedField('signupConfirmPassword')}
+                        onBlur={() => setFocusedField(null)}
+                        secureTextEntry={!showSignupPassword}
+                        autoCapitalize="none"
+                        editable={!submittingSignup}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Submit Signup CTA Button */}
+                  <TouchableOpacity
+                    style={styles.signInButton}
+                    onPress={handleSignup}
+                    activeOpacity={0.88}
+                    disabled={submittingSignup}
+                  >
+                    <LinearGradient
+                      colors={['#8B5CF6', '#EC4899', '#F43F5E']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.signInGradient}
+                    >
+                      <Text style={styles.signInText}>
+                        {submittingSignup ? 'Submitting Request...' : 'Submit Signup Request'}
+                      </Text>
+                      <View style={styles.arrowBadge}>
+                        <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Switch to Sign In Link */}
+                  <TouchableOpacity
+                    style={styles.switchModeLink}
+                    onPress={() => {
+                      setAuthMode('signin');
+                      setErrorMessage('');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.switchModeText}>
+                      Already have an account? <Text style={styles.switchModeHighlight}>Sign In</Text>
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* Server Connection Settings Button */}
@@ -1431,5 +1814,105 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+
+  // ==========================================
+  // SIGN IN / SIGN UP TAB SWITCHER & SIGNUP STYLES
+  // ==========================================
+  tabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tabButton: {
+    flex: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  tabButtonActive: {
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    gap: 6,
+  },
+  tabInactiveContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    gap: 6,
+  },
+  tabButtonTextActive: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  tabButtonTextInactive: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  successContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+    gap: 8,
+  },
+  successText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#15803D',
+    flex: 1,
+    lineHeight: 17,
+  },
+  signupNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 14,
+    gap: 8,
+  },
+  signupNoticeText: {
+    fontSize: 11,
+    color: '#6D28D9',
+    fontWeight: '500',
+    flex: 1,
+    lineHeight: 15,
+  },
+  switchModeLink: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  switchModeText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  switchModeHighlight: {
+    color: '#8B5CF6',
+    fontWeight: '700',
   },
 });

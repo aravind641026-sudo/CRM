@@ -80,6 +80,30 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok("User status updated successfully", response));
     }
 
+    @GetMapping("/pending-signups")
+    public ResponseEntity<ApiResponse<PageResponse<UserResponse>>> getPendingSignups(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        Page<UserResponse> result = userService.getPendingSignups(PageRequest.of(page, size, Sort.by("createdAt").descending()));
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.from(result)));
+    }
+
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<ApiResponse<UserResponse>> approveSignup(
+            @PathVariable Long id,
+            @CurrentUser UserPrincipal principal) {
+        UserResponse response = userService.approveSignup(id, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok("User approved successfully. User can now log in.", response));
+    }
+
+    @PostMapping("/{id}/reject")
+    public ResponseEntity<ApiResponse<UserResponse>> rejectSignup(
+            @PathVariable Long id,
+            @CurrentUser UserPrincipal principal) {
+        UserResponse response = userService.rejectSignup(id, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok("User signup request rejected.", response));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<String>> deleteUser(@PathVariable Long id,
                                                          @CurrentUser UserPrincipal principal) {

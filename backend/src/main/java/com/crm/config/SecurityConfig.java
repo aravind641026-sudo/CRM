@@ -57,7 +57,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/api/v1/auth/login", "/api/v1/health", "/error").permitAll()
+                .requestMatchers("/api/v1/auth/login", "/api/v1/auth/signup", "/api/v1/auth/signup-status", "/api/v1/health", "/error").permitAll()
                 .requestMatchers("/api/v1/users/active", "/api/v1/users/request-admin-access", "/api/v1/users/admin-access-status").hasAnyRole("ADMIN", "USER")
                 .requestMatchers("/api/v1/admin/**", "/api/v1/users/**", "/api/v1/audit-logs/**", "/api/v1/google-sheets/**").hasRole("ADMIN")
                 .requestMatchers("/api/v1/**").authenticated()

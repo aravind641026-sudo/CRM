@@ -52,15 +52,19 @@ export const AdminUsersScreen: React.FC = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'ROLE_ADMIN' | 'ROLE_USER'>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'REJECTED'>('ALL');
   const [shiftFilter, setShiftFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const pendingUsers = useMemo(() => users.filter((u) => u.status === 'PENDING'), [users]);
+  const displayedUsers = useMemo(() => (activeTab === 'pending' ? pendingUsers : users), [activeTab, pendingUsers, users]);
 
   // Filter Sheet Modal State
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [tempRole, setTempRole] = useState<'ALL' | 'ROLE_ADMIN' | 'ROLE_USER'>(roleFilter);
-  const [tempStatus, setTempStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>(statusFilter);
+  const [tempStatus, setTempStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'REJECTED'>('ALL');
   const [tempShift, setTempShift] = useState<string>(shiftFilter);
 
   const openFilterModal = () => {
@@ -221,6 +225,39 @@ export const AdminUsersScreen: React.FC = () => {
     }
   };
 
+  const handleApproveSignup = async (user: User) => {
+    try {
+      await usersApi.approveSignup(user.id);
+      showSuccess('User Approved', `"${user.name}" has been approved and can now log in.`);
+      fetchUsers(true);
+    } catch (err: any) {
+      showError('Approval Failed', err.message || 'Unable to approve user.');
+    }
+  };
+
+  const handleRejectSignup = async (user: User) => {
+    Alert.alert(
+      'Reject Signup Request',
+      `Are you sure you want to reject the signup request for "${user.name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await usersApi.rejectSignup(user.id);
+              showInfo('Signup Rejected', `"${user.name}" request was rejected.`);
+              fetchUsers(true);
+            } catch (err: any) {
+              showError('Rejection Failed', err.message || 'Unable to reject user.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleDeleteUser = (user: User) => {
     setUserToDelete(user);
     setDeleteModalVisible(true);
@@ -247,18 +284,34 @@ export const AdminUsersScreen: React.FC = () => {
   };
 
   const renderUserCard = ({ item }: { item: User }) => {
-    const isActive = item.status === 'ACTIVE';
+    const isPending = item.status === 'PENDING';
+    const isRejected = item.status === 'REJECTED';
+    const isActive = item.status === 'ACTIVE' || item.status === 'APPROVED';
     const isAdmin = item.role === 'ROLE_ADMIN';
 
     return (
       <Card style={styles.userCard}>
         <TouchableOpacity
           style={styles.userCardTop}
-          onPress={() => navigation.navigate('AttendanceHistory', { userId: item.id, userName: item.name })}
-          activeOpacity={0.7}
+          onPress={() => !isPending && navigation.navigate('AttendanceHistory', { userId: item.id, userName: item.name })}
+          activeOpacity={isPending ? 1 : 0.7}
         >
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
+          <View
+            style={[
+              styles.avatarCircle,
+              isPending && { backgroundColor: '#FEF3C7' },
+              isRejected && { backgroundColor: '#FEE2E2' },
+            ]}
+          >
+            <Text
+              style={[
+                styles.avatarText,
+                isPending && { color: '#D97706' },
+                isRejected && { color: '#DC2626' },
+              ]}
+            >
+              {item.name.charAt(0).toUpperCase()}
+            </Text>
           </View>
 
           <View style={styles.userInfo}>
@@ -270,15 +323,17 @@ export const AdminUsersScreen: React.FC = () => {
                 style={[
                   styles.roleBadge,
                   isAdmin ? styles.roleBadgeAdmin : styles.roleBadgeUser,
+                  isPending && { backgroundColor: '#FEF3C7' },
                 ]}
               >
                 <Text
                   style={[
                     styles.roleBadgeText,
                     isAdmin ? styles.roleTextAdmin : styles.roleTextUser,
+                    isPending && { color: '#D97706' },
                   ]}
                 >
-                  {isAdmin ? 'ADMIN' : 'USER'}
+                  {isPending ? 'APPLICANT' : isAdmin ? 'ADMIN' : 'USER'}
                 </Text>
               </View>
             </View>
@@ -292,55 +347,59 @@ export const AdminUsersScreen: React.FC = () => {
               </Text>
             ) : null}
 
-            <View style={styles.shiftBadge}>
-              <Ionicons name="time-outline" size={11} color={colors.textSecondary} />
-              <Text style={styles.shiftBadgeText}>{item.shiftDisplayName || '10:00 AM – 07:00 PM'}</Text>
-            </View>
+            {isPending ? (
+              <View style={styles.pendingBadgeRow}>
+                <Ionicons name="time-outline" size={12} color="#D97706" />
+                <Text style={styles.pendingBadgeText}>
+                  Awaiting Admin Approval
+                </Text>
+              </View>
+            ) : isRejected ? (
+              <View style={styles.rejectedBadgeRow}>
+                <Ionicons name="close-circle-outline" size={12} color="#DC2626" />
+                <Text style={styles.rejectedBadgeText}>Signup Request Rejected</Text>
+              </View>
+            ) : (
+              <View style={styles.shiftBadge}>
+                <Ionicons name="time-outline" size={11} color={colors.textSecondary} />
+                <Text style={styles.shiftBadgeText}>{item.shiftDisplayName || '10:00 AM – 07:00 PM'}</Text>
+              </View>
+            )}
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={{ alignSelf: 'center', marginLeft: 4 }} />
+          {!isPending && (
+            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={{ alignSelf: 'center', marginLeft: 4 }} />
+          )}
         </TouchableOpacity>
 
-        <View style={styles.userCardFooter}>
-          <TouchableOpacity
-            style={[
-              styles.statusToggleBtn,
-              isActive ? styles.statusBtnActive : styles.statusBtnInactive,
-            ]}
-            onPress={() => handleToggleStatus(item)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={isActive ? 'checkmark-circle' : 'close-circle'}
-              size={14}
-              color={isActive ? '#10b981' : '#ef4444'}
-            />
-            <Text
-              style={[
-                styles.statusToggleText,
-                { color: isActive ? '#10b981' : '#ef4444' },
-              ]}
-            >
-              {item.status}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.userActionBtns}>
+        {isPending ? (
+          <View style={styles.pendingActionsRow}>
             <TouchableOpacity
-              style={styles.attendanceBtn}
-              onPress={() => navigation.navigate('AttendanceHistory', { userId: item.id, userName: item.name })}
-              activeOpacity={0.7}
+              style={styles.approveBtn}
+              onPress={() => handleApproveSignup(item)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="calendar-outline" size={13} color={colors.primary} />
-              <Text style={styles.attendanceBtnText}>Attendance</Text>
+              <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
+              <Text style={styles.approveBtnText}>Accept / Approve</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.editBtn}
-              onPress={() => handleOpenEdit(item)}
-              activeOpacity={0.7}
+              style={styles.rejectBtn}
+              onPress={() => handleRejectSignup(item)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="create-outline" size={13} color={colors.textSecondary} />
-              <Text style={styles.editBtnText}>Edit</Text>
+              <Ionicons name="close-circle" size={15} color="#DC2626" />
+              <Text style={styles.rejectBtnText}>Reject</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isRejected ? (
+          <View style={styles.pendingActionsRow}>
+            <TouchableOpacity
+              style={styles.approveBtn}
+              onPress={() => handleApproveSignup(item)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh-circle" size={15} color="#FFFFFF" />
+              <Text style={styles.approveBtnText}>Re-Approve User</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -352,7 +411,61 @@ export const AdminUsersScreen: React.FC = () => {
               <Text style={styles.deleteUserBtnText}>Delete</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        ) : (
+          <View style={styles.userCardFooter}>
+            <TouchableOpacity
+              style={[
+                styles.statusToggleBtn,
+                isActive ? styles.statusBtnActive : styles.statusBtnInactive,
+              ]}
+              onPress={() => handleToggleStatus(item)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={isActive ? 'checkmark-circle' : 'close-circle'}
+                size={14}
+                color={isActive ? '#10b981' : '#ef4444'}
+              />
+              <Text
+                style={[
+                  styles.statusToggleText,
+                  { color: isActive ? '#10b981' : '#ef4444' },
+                ]}
+              >
+                {item.status}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.userActionBtns}>
+              <TouchableOpacity
+                style={styles.attendanceBtn}
+                onPress={() => navigation.navigate('AttendanceHistory', { userId: item.id, userName: item.name })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="calendar-outline" size={13} color={colors.primary} />
+                <Text style={styles.attendanceBtnText}>Attendance</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.editBtn}
+                onPress={() => handleOpenEdit(item)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="create-outline" size={13} color={colors.textSecondary} />
+                <Text style={styles.editBtnText}>Edit</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteUserBtn}
+                onPress={() => handleDeleteUser(item)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={13} color={colors.danger} />
+                <Text style={styles.deleteUserBtnText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Card>
     );
   };
@@ -444,6 +557,8 @@ export const AdminUsersScreen: React.FC = () => {
                 [
                   { id: 'ALL', label: 'All Status' },
                   { id: 'ACTIVE', label: 'Active Users' },
+                  { id: 'PENDING', label: 'Pending Approval' },
+                  { id: 'REJECTED', label: 'Rejected' },
                   { id: 'INACTIVE', label: 'Inactive Users' },
                 ] as const
               ).map((s) => (
@@ -501,19 +616,71 @@ export const AdminUsersScreen: React.FC = () => {
           </View>
         </FilterSheetModal>
 
+      {/* Segmented Tab Row: All Users vs Pending Signups */}
+      <View style={styles.tabToggleRow}>
+        <TouchableOpacity
+          style={[styles.tabToggleBtn, activeTab === 'all' && styles.tabToggleBtnActive]}
+          onPress={() => setActiveTab('all')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="people"
+            size={16}
+            color={activeTab === 'all' ? colors.primary : '#64748B'}
+          />
+          <Text
+            style={[styles.tabToggleText, activeTab === 'all' && styles.tabToggleTextActive]}
+          >
+            All Users ({users.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabToggleBtn,
+            activeTab === 'pending' && styles.tabToggleBtnActivePending,
+          ]}
+          onPress={() => setActiveTab('pending')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="person-add"
+            size={16}
+            color={activeTab === 'pending' ? '#D97706' : '#64748B'}
+          />
+          <Text
+            style={[
+              styles.tabToggleText,
+              activeTab === 'pending' && styles.tabToggleTextActivePending,
+            ]}
+          >
+            Pending Signups
+          </Text>
+          {pendingUsers.length > 0 && (
+            <View style={styles.pendingBadgeDot}>
+              <Text style={styles.pendingBadgeDotText}>{pendingUsers.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {loading && !refreshing ? (
         <LoadingState message="Loading users..." fullScreen />
-      ) : users.length === 0 ? (
+      ) : displayedUsers.length === 0 ? (
         <EmptyState
-          icon="people-outline"
-          title="No Users Found"
-          message="Create a user to give team members access to the CRM."
-          actionLabel="Add User"
-          onAction={handleOpenCreate}
+          icon={activeTab === 'pending' ? 'checkmark-circle-outline' : 'people-outline'}
+          title={activeTab === 'pending' ? 'No Pending Signups' : 'No Users Found'}
+          message={
+            activeTab === 'pending'
+              ? 'All user sign-up requests have been reviewed.'
+              : 'Create a user to give team members access to the CRM.'
+          }
+          actionLabel={activeTab === 'pending' ? undefined : 'Add User'}
+          onAction={activeTab === 'pending' ? undefined : handleOpenCreate}
         />
       ) : (
         <FlatList
-          data={users}
+          data={displayedUsers}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderUserCard}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
@@ -1139,6 +1306,147 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  tabToggleRow: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.md,
+    marginTop: 8,
+    marginBottom: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  tabToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 9,
+    gap: 6,
+  },
+  tabToggleBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabToggleBtnActivePending: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    shadowColor: '#D97706',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  tabToggleTextActive: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  tabToggleTextActivePending: {
+    color: '#B45309',
+    fontWeight: '700',
+  },
+  pendingBadgeDot: {
+    backgroundColor: '#EF4444',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    marginLeft: 2,
+  },
+  pendingBadgeDotText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  pendingActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  approveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 5,
+  },
+  approveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rejectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 5,
+  },
+  rejectBtnText: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pendingBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginTop: 3,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  pendingBadgeText: {
+    fontSize: 11,
+    color: '#B45309',
+    fontWeight: '700',
+  },
+  rejectedBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginTop: 3,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  rejectedBadgeText: {
+    fontSize: 11,
+    color: '#DC2626',
     fontWeight: '700',
   },
 });
