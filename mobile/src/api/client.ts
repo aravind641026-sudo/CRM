@@ -32,12 +32,7 @@ export const apiClient: AxiosInstance = axios.create({
 
 // Load stored custom URL on startup
 AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_API_URL).then((storedUrl) => {
-  if (storedUrl) {
-    // If storedUrl contains stale/unreachable previous IP, clear it
-    if (storedUrl.includes('10.97.41.211')) {
-      AsyncStorage.removeItem(STORAGE_KEYS.CUSTOM_API_URL).catch(() => {});
-      return;
-    }
+  if (storedUrl && storedUrl.trim() !== '') {
     // On web when accessing localhost, don't let a stale remote IP override localhost
     if (
       typeof window !== 'undefined' &&

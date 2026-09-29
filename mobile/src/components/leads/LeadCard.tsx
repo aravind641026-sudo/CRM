@@ -6,6 +6,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { Lead } from '../../types';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 interface LeadCardProps {
   lead: Lead;
@@ -15,9 +16,7 @@ interface LeadCardProps {
 
 export const LeadCard: React.FC<LeadCardProps> = ({ lead, onPress, onLogCall }) => {
   const handleDirectCall = () => {
-    if (lead.phone) {
-      Linking.openURL(`tel:${lead.phone}`);
-    }
+    openSystemDialer(lead.phone);
   };
 
   const formatDate = (dateStr?: string) => {

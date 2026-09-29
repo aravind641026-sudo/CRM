@@ -27,6 +27,7 @@ import { FilterSheetModal } from '../../components/common/FilterSheetModal';
 import { useCollapsibleHeader } from '../../utils/useCollapsibleHeader';
 import { salesApi } from '../../api/salesApi';
 import { Sale, RootStackParamList } from '../../types';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 export const ConvertedLeadsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -219,8 +220,7 @@ export const ConvertedLeadsScreen: React.FC = () => {
   };
 
   const handleCall = (phone?: string) => {
-    if (!phone) return;
-    Linking.openURL(`tel:${phone}`);
+    openSystemDialer(phone);
   };
 
   const renderItem = ({ item }: { item: Sale }) => {

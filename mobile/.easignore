@@ -1,0 +1,13 @@
+# EAS ignore file
+node_modules/
+.expo/
+dist/
+android/
+ios/
+.idea/
+.vscode/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.apk
+

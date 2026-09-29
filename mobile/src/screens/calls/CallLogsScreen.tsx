@@ -31,6 +31,7 @@ import { followUpApi } from '../../api/followUpApi';
 import { useAuth } from '../../context/AuthContext';
 import { Call, FollowUp } from '../../types';
 import { isCallMissed } from '../../utils/callGrouping';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 type CallLogTab = 'HISTORY' | 'TODAY' | 'UPCOMING' | 'MISSED';
 type AdminScope = 'MY_CALLS' | 'ALL_CALLS';
@@ -316,10 +317,7 @@ export const CallLogsScreen: React.FC = () => {
   };
 
   const handleDirectCall = (phone?: string) => {
-    if (phone) {
-      const clean = phone.replace(/[^0-9+]/g, '');
-      Linking.openURL(`tel:${clean}`);
-    }
+    openSystemDialer(phone);
   };
 
   const handleOpenGroupDetails = (group: any) => {

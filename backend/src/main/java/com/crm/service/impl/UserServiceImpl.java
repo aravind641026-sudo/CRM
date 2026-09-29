@@ -293,10 +293,22 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(readOnly = true)
     public Page<UserResponse> searchUsers(String search, String role, String status, Pageable pageable) {
-        if (role != null && !role.startsWith("ROLE_") && !role.isEmpty()) {
-            role = "ROLE_" + role.toUpperCase();
+        String cleanSearch = (search != null && !search.trim().isEmpty()) ? search.trim() : null;
+
+        String cleanRole = null;
+        if (role != null && !role.trim().isEmpty() && !role.equalsIgnoreCase("ALL")) {
+            cleanRole = role.trim();
+            if (!cleanRole.startsWith("ROLE_")) {
+                cleanRole = "ROLE_" + cleanRole.toUpperCase();
+            }
         }
-        return userRepository.searchUsers(search, role, status, pageable)
+
+        String cleanStatus = null;
+        if (status != null && !status.trim().isEmpty() && !status.equalsIgnoreCase("ALL")) {
+            cleanStatus = status.trim().toUpperCase();
+        }
+
+        return userRepository.searchUsers(cleanSearch, cleanRole, cleanStatus, pageable)
                 .map(user -> {
                     long activeLeads = leadAssignmentRepository.countByUserIdAndIsActiveTrue(user.getId());
                     return userMapper.toResponse(user, activeLeads, 0);

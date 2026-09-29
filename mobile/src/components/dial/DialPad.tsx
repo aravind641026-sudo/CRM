@@ -14,6 +14,7 @@ import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
 import { leadApi } from '../../api/leadApi';
 import { Lead } from '../../types';
+import { openSystemDialer } from '../../utils/phoneDialer';
 import { Card } from '../common/Card';
 import { StatusBadge } from '../common/StatusBadge';
 
@@ -111,16 +112,7 @@ export const DialPad: React.FC<DialPadProps> = ({
       return;
     }
 
-    const url = `tel:${phoneNumber.trim()}`;
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          Linking.openURL(url);
-        } else {
-          Alert.alert('Phone dialer unavailable', `Cannot make calls to ${phoneNumber} on this device.`);
-        }
-      })
-      .catch((err) => console.warn('Dialer error:', err));
+    openSystemDialer(phoneNumber.trim());
   };
 
   return (

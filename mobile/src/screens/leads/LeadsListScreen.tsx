@@ -39,6 +39,7 @@ import { projectsApi } from '../../api/projectsApi';
 import { usersApi } from '../../api/usersApi';
 import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { Lead, Project, User } from '../../types';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 const FILTER_STATUS_OPTIONS = [
   { key: 'NEW', label: 'New', dot: '#94A3B8' },
@@ -252,11 +253,7 @@ export const LeadsListScreen: React.FC = () => {
   };
 
   const handleQuickCall = (phone?: string) => {
-    if (!phone) {
-      Alert.alert('No Number', 'No phone number available for this lead.');
-      return;
-    }
-    Linking.openURL(`tel:${phone.trim()}`);
+    openSystemDialer(phone);
   };
 
   const getLeadStatusConfig = (status?: string) => {

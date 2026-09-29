@@ -46,8 +46,20 @@ public class DataSourceConfig {
     private DataSource createDataSourceFromUrl(String rawUrl) throws Exception {
         HikariConfig config = new HikariConfig();
 
-        if (rawUrl.startsWith("jdbc:")) {
+        if (rawUrl.startsWith("jdbc:mysql:")) {
             config.setJdbcUrl(rawUrl);
+            config.setDriverClassName("com.mysql.cj.jdbc.Driver");
+            String username = System.getenv("DATABASE_USERNAME");
+            if (!StringUtils.hasText(username)) username = System.getProperty("DATABASE_USERNAME");
+            if (StringUtils.hasText(username)) config.setUsername(username);
+            String password = System.getenv("DATABASE_PASSWORD");
+            if (!StringUtils.hasText(password)) password = System.getProperty("DATABASE_PASSWORD");
+            if (password != null) config.setPassword(password);
+        } else if (rawUrl.startsWith("jdbc:")) {
+            config.setJdbcUrl(rawUrl);
+            if (rawUrl.startsWith("jdbc:postgresql:")) {
+                config.setDriverClassName("org.postgresql.Driver");
+            }
         } else {
             // e.g., postgres://user:password@host:port/dbname?sslmode=require
             URI uri = new URI(rawUrl);
@@ -80,9 +92,9 @@ public class DataSourceConfig {
             }
 
             config.setJdbcUrl(jdbcUrl);
+            config.setDriverClassName("org.postgresql.Driver");
         }
 
-        config.setDriverClassName("org.postgresql.Driver");
         config.setMaximumPoolSize(10);
         config.setMinimumIdle(2);
         config.setIdleTimeout(30000);

@@ -12,15 +12,20 @@ import {
   useWindowDimensions,
   Alert,
   TextInput,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../types';
+import { getApiBaseUrl, setApiBaseUrl } from '../../api/client';
+import { STORAGE_KEYS } from '../../config/constants';
 
 export const LoginScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -31,6 +36,11 @@ export const LoginScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Server settings modal state
+  const [showServerModal, setShowServerModal] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState(getApiBaseUrl());
+  const [testStatus, setTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string }>({ loading: false });
 
   // Focused state for input border highlight
   const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
@@ -264,10 +274,75 @@ export const LoginScreen: React.FC = () => {
         routes: [{ name: 'Main' }],
       });
     } catch (err: any) {
-      setErrorMessage(err.message || 'Login failed. Please check your credentials.');
+      const msg = err.message || 'Login failed. Please check your credentials.';
+      if (
+        msg.toLowerCase().includes('network') ||
+        msg.toLowerCase().includes('connect') ||
+        msg.toLowerCase().includes('timeout')
+      ) {
+        setErrorMessage(
+          msg + '\n(Tap "Server Settings" below to test or switch your backend URL)'
+        );
+      } else {
+        setErrorMessage(msg);
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTestConnection = async (urlToTest: string) => {
+    setTestStatus({ loading: true, message: undefined });
+    try {
+      const trimmed = urlToTest.trim().replace(/\/+$/, '');
+      const cleanUrl = trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetch(`${cleanUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'test_health_ping@crm.com', password: 'ping' }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // Even if 401 or 400, the server reached!
+      if (res.status === 200 || res.status === 400 || res.status === 401) {
+        setTestStatus({
+          loading: false,
+          success: true,
+          message: `Connected! Server is reachable (HTTP ${res.status}).`,
+        });
+      } else {
+        setTestStatus({
+          loading: false,
+          success: false,
+          message: `Server responded with HTTP status ${res.status}.`,
+        });
+      }
+    } catch (e: any) {
+      const errMsg = e.name === 'AbortError' ? 'Connection timed out (8s)' : (e.message || 'Network error');
+      setTestStatus({
+        loading: false,
+        success: false,
+        message: `Failed to connect: ${errMsg}`,
+      });
+    }
+  };
+
+  const handleSaveServerUrl = async () => {
+    const trimmed = serverUrlInput.trim().replace(/\/+$/, '');
+    if (!trimmed) {
+      Alert.alert('Invalid URL', 'Please enter a valid backend server URL.');
+      return;
+    }
+    const cleanUrl = trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
+    setApiBaseUrl(cleanUrl);
+    await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_API_URL, cleanUrl);
+    setShowServerModal(false);
+    setErrorMessage('');
+    Alert.alert('Backend Updated', `Active backend URL is now:\n${cleanUrl}`);
   };
 
   return (
@@ -611,6 +686,23 @@ export const LoginScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
 
+            {/* Server Connection Settings Button */}
+            <TouchableOpacity
+              style={styles.serverSettingsBtn}
+              onPress={() => {
+                setServerUrlInput(getApiBaseUrl());
+                setTestStatus({ loading: false, message: undefined });
+                setShowServerModal(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="server-outline" size={13} color="#6366F1" />
+              <Text style={styles.serverSettingsBtnText} numberOfLines={1}>
+                Server: {getApiBaseUrl().replace('https://', '').replace('http://', '')}
+              </Text>
+              <Ionicons name="settings-outline" size={13} color="#6366F1" />
+            </TouchableOpacity>
+
             {/* Bottom Security Footer */}
             <View style={styles.footerSection}>
               <View style={styles.shieldIconContainer}>
@@ -620,6 +712,104 @@ export const LoginScreen: React.FC = () => {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Server Connection Settings Modal */}
+        <Modal
+          visible={showServerModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowServerModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderTitleRow}>
+                  <Ionicons name="server" size={20} color="#4F46E5" />
+                  <Text style={styles.modalTitle}>Backend Connection</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowServerModal(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalDescription}>
+                Configure the backend server URL this mobile app connects to:
+              </Text>
+
+              <TextInput
+                style={styles.serverModalInput}
+                value={serverUrlInput}
+                onChangeText={setServerUrlInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="https://... or http://192.168.1.16:8080"
+                placeholderTextColor="#94A3B8"
+              />
+
+              {/* Quick Presets */}
+              <Text style={styles.presetsLabel}>Quick Presets:</Text>
+              <View style={styles.presetButtonsRow}>
+                <TouchableOpacity
+                  style={styles.presetBtn}
+                  onPress={() => setServerUrlInput('https://procedures-anderson-importance-drivers.trycloudflare.com/api/v1')}
+                >
+                  <Ionicons name="cloud-done-outline" size={14} color="#16A34A" />
+                  <Text style={styles.presetBtnText}>Cloudflare HTTPS Tunnel (Recommended)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.presetBtn}
+                  onPress={() => setServerUrlInput('http://192.168.1.16:8080/api/v1')}
+                >
+                  <Ionicons name="wifi-outline" size={14} color="#2563EB" />
+                  <Text style={styles.presetBtnText}>Local Wi-Fi (192.168.1.16:8080)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.presetBtn}
+                  onPress={() => setServerUrlInput('https://crm-b4a1.onrender.com/api/v1')}
+                >
+                  <Ionicons name="globe-outline" size={14} color="#7C3AED" />
+                  <Text style={styles.presetBtnText}>Render Cloud Production</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Test Connection Status */}
+              {testStatus.loading ? (
+                <View style={styles.testStatusRow}>
+                  <ActivityIndicator size="small" color="#4F46E5" />
+                  <Text style={styles.testStatusText}>Testing connection...</Text>
+                </View>
+              ) : testStatus.message ? (
+                <View style={[styles.testStatusRow, testStatus.success ? styles.testSuccess : styles.testFail]}>
+                  <Ionicons
+                    name={testStatus.success ? "checkmark-circle" : "alert-circle"}
+                    size={16}
+                    color={testStatus.success ? "#16A34A" : "#DC2626"}
+                  />
+                  <Text style={[styles.testStatusText, { color: testStatus.success ? "#16A34A" : "#DC2626" }]}>
+                    {testStatus.message}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Action Buttons */}
+              <View style={styles.modalActionButtonsRow}>
+                <TouchableOpacity
+                  style={styles.testBtn}
+                  onPress={() => handleTestConnection(serverUrlInput)}
+                  disabled={testStatus.loading}
+                >
+                  <Text style={styles.testBtnText}>Test Connection</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.saveBtn}
+                  onPress={handleSaveServerUrl}
+                >
+                  <Text style={styles.saveBtnText}>Save & Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -1078,5 +1268,168 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 11,
     fontWeight: '500',
+  },
+
+  // ==========================================
+  // SERVER SETTINGS BUTTON & MODAL
+  // ==========================================
+  serverSettingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(99, 102, 241, 0.08)',
+    borderRadius: 20,
+    alignSelf: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.15)',
+  },
+  serverSettingsBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6366F1',
+    maxWidth: 240,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  modalDescription: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 10,
+  },
+  serverModalInput: {
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 12,
+  },
+  presetsLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  presetButtonsRow: {
+    gap: 6,
+    marginBottom: 12,
+  },
+  presetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  presetBtnText: {
+    fontSize: 12,
+    color: '#334155',
+    fontWeight: '500',
+    flex: 1,
+  },
+  testStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    marginBottom: 12,
+  },
+  testSuccess: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  testFail: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  testStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748B',
+    flex: 1,
+  },
+  modalActionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  testBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  testBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  saveBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: '#4F46E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

@@ -9,7 +9,23 @@ export const usersApi = {
     page?: number;
     size?: number;
   }): Promise<PageResponse<User>> => {
-    const res = await apiClient.get<ApiResponse<PageResponse<User>>>('/users', { params });
+    const queryParams: Record<string, any> = {
+      page: params?.page ?? 0,
+      size: params?.size ?? 50,
+    };
+    if (params?.role && params.role !== 'ALL' && params.role.trim() !== '') {
+      queryParams.role = params.role.trim();
+    }
+    if (params?.status && params.status !== 'ALL' && params.status.trim() !== '') {
+      queryParams.status = params.status.trim();
+    }
+    if (params?.search && params.search.trim() !== '') {
+      queryParams.search = params.search.trim();
+    }
+
+    const res = await apiClient.get<ApiResponse<PageResponse<User>>>('/users', {
+      params: queryParams,
+    });
     return res.data.data;
   },
 

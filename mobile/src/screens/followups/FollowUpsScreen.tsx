@@ -26,6 +26,7 @@ import { FilterSheetModal } from '../../components/common/FilterSheetModal';
 import { useCollapsibleHeader } from '../../utils/useCollapsibleHeader';
 import { followUpApi } from '../../api/followUpApi';
 import { FollowUp } from '../../types';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 type FollowUpTab = 'today' | 'upcoming' | 'overdue' | 'completed';
 
@@ -101,11 +102,7 @@ export const FollowUpsScreen: React.FC = () => {
   };
 
   const handleQuickCall = (phone?: string) => {
-    if (!phone) {
-      Alert.alert('No Number', 'No phone number is available for this lead.');
-      return;
-    }
-    Linking.openURL(`tel:${phone.trim()}`);
+    openSystemDialer(phone);
   };
 
   const formatDateTime = (dateStr?: string) => {

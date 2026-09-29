@@ -35,6 +35,7 @@ import { usersApi } from '../../api/usersApi';
 import { useAuth } from '../../context/AuthContext';
 import { Call, User, RootStackParamList } from '../../types';
 import { GroupedCallLog, groupCallsByPhoneNumber, isCallMissed } from '../../utils/callGrouping';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 // Deterministic pastel avatar palette matching reference image
 interface PastelStyle {
@@ -307,15 +308,7 @@ export const DialScreen: React.FC = () => {
       customerPhone: cleanPhone,
     }).catch((err) => console.warn('Initiate call event failed:', err));
 
-    const url = `tel:${cleanPhone}`;
-    Linking.canOpenURL(url).then((supported) => {
-      if (supported) {
-        Linking.openURL(url);
-      } else {
-        activeCallRef.current = null;
-        Alert.alert('Dialer Unavailable', `Cannot dial ${cleanPhone} on this device.`);
-      }
-    });
+    openSystemDialer(cleanPhone);
   };
 
   // Format Date to match reference: "26 Sep, 12:08 PM"

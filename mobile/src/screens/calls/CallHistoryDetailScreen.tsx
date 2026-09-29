@@ -23,6 +23,7 @@ import { AmbientBackground } from '../../components/common/AmbientBackground';
 import { callApi } from '../../api/callApi';
 import { Call, RootStackParamList } from '../../types';
 import { GroupedCallLog, isCallMissed } from '../../utils/callGrouping';
+import { openSystemDialer } from '../../utils/phoneDialer';
 
 type CallHistoryDetailRouteProp = RouteProp<RootStackParamList, 'CallHistoryDetail'>;
 
@@ -59,18 +60,20 @@ export const CallHistoryDetailScreen: React.FC = () => {
     followUpDate: initialCall?.followUpDate || initialGroupedLog?.followUpDate,
   });
 
+  const effectiveLeadId = leadId || initialCall?.leadId || (initialCall as any)?.lead?.id || initialGroupedLog?.leadId;
+
   const loadCallHistory = useCallback(async (isRefresh = false) => {
     if (!isRefresh && calls.length === 0) setLoading(true);
     try {
-      if (leadId) {
-        const leadCalls = await callApi.getCallsForLead(leadId);
-        if (leadCalls && leadCalls.length > 0) {
-          let merged = [...leadCalls];
-          if (initialCall && !merged.some((c) => c.id === initialCall.id)) {
-            merged.unshift(initialCall);
-          }
-          setCalls(merged);
-          const first = (callId ? merged.find((c) => c.id === callId) : undefined) || initialCall || merged[0];
+      if (effectiveLeadId) {
+        const leadCalls = await callApi.getCallsForLead(effectiveLeadId);
+        let merged = leadCalls ? [...leadCalls] : [];
+        if (initialCall && !merged.some((c) => c.id === initialCall.id)) {
+          merged.unshift(initialCall);
+        }
+        setCalls(merged);
+        const first = (callId ? merged.find((c) => c.id === callId) : undefined) || initialCall || merged[0];
+        if (first) {
           setLeadInfo((prev) => ({
             ...prev,
             name: first.leadName || prev.name,
@@ -80,15 +83,15 @@ export const CallHistoryDetailScreen: React.FC = () => {
             followUpDate: first.followUpDate || prev.followUpDate,
           }));
         }
-      } else if (phoneNumber) {
-        // Search calls matching this phone number
-        const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+      } else if (phoneNumber || callId) {
+        // Search calls matching this phone number or callId
+        const cleanPhone = (phoneNumber || '').replace(/[^0-9]/g, '');
         const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
         const res = await callApi.getCalls({ size: 100 });
         const matching = (res.content || []).filter((c) => {
           const cPhone = (c.leadPhone || (c as any).phoneNumber || (c as any).customerPhone || '').replace(/[^0-9]/g, '');
           const cLast10 = cPhone.length >= 10 ? cPhone.slice(-10) : cPhone;
-          return cLast10 === last10 || (cleanPhone && cPhone.includes(cleanPhone)) || (callId && c.id === callId);
+          return (last10 && cLast10 === last10) || (cleanPhone && cPhone.includes(cleanPhone)) || (callId && c.id === callId);
         });
         let merged = matching;
         if (initialCall && !merged.some((c) => c.id === initialCall.id)) {
@@ -96,6 +99,15 @@ export const CallHistoryDetailScreen: React.FC = () => {
         }
         if (merged.length > 0) {
           setCalls(merged);
+          const first = merged[0];
+          setLeadInfo((prev) => ({
+            ...prev,
+            name: first.leadName || prev.name,
+            phone: first.leadPhone || prev.phone,
+            projectName: first.projectName || prev.projectName,
+            assignedUser: first.userName || first.user?.name || prev.assignedUser,
+            followUpDate: first.followUpDate || prev.followUpDate,
+          }));
         }
       }
     } catch (err) {
@@ -104,7 +116,7 @@ export const CallHistoryDetailScreen: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [leadId, phoneNumber, callId, initialCall, calls.length]);
+  }, [effectiveLeadId, phoneNumber, callId, initialCall, calls.length]);
 
   useEffect(() => {
     loadCallHistory();
@@ -118,8 +130,7 @@ export const CallHistoryDetailScreen: React.FC = () => {
   const handleCall = () => {
     const raw = leadInfo.phone || phoneNumber;
     if (raw) {
-      const clean = raw.replace(/[^0-9+]/g, '');
-      Linking.openURL(`tel:${clean}`);
+      openSystemDialer(raw);
     }
   };
 

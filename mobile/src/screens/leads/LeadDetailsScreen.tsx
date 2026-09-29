@@ -32,6 +32,7 @@ import { followUpApi } from '../../api/followUpApi';
 import { usersApi } from '../../api/usersApi';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { openSystemDialer } from '../../utils/phoneDialer';
 import {
   LeadDetailResponse,
   Call,
@@ -193,15 +194,17 @@ export const LeadDetailsScreen: React.FC = () => {
       })
       .catch((err) => console.warn('Initiate call event failed:', err));
 
-    const url = `tel:${cleanPhone}`;
-    Linking.canOpenURL(url).then((supported) => {
-      if (supported) {
-        Linking.openURL(url);
-      } else {
-        activeCallRef.current = null;
-        Alert.alert('Dialer Unavailable', `Cannot dial ${cleanPhone} on this device.`);
-      }
-    });
+    openSystemDialer(cleanPhone);
+  };
+
+  const handleOpenWhatsApp = () => {
+    if (!lead?.phone) {
+      Alert.alert('No Number', 'Customer does not have a valid phone number.');
+      return;
+    }
+    const clean = lead.phone.replace(/[^0-9]/g, '');
+    const waNumber = clean.length === 10 ? `91${clean}` : clean;
+    Linking.openURL(`https://wa.me/${waNumber}`);
   };
 
   const handleOpenEmail = () => {
@@ -568,6 +571,43 @@ export const LeadDetailsScreen: React.FC = () => {
               </View>
             </View>
           </LinearGradient>
+
+          {/* Quick Action Bar: Call, WhatsApp, Log Call */}
+          <View style={styles.quickActionBar}>
+            <TouchableOpacity
+              style={styles.quickActionCallBtn}
+              onPress={handleCallCustomer}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#10B981', '#059669']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.quickActionCallGradient}
+              >
+                <Ionicons name="call" size={17} color="#FFFFFF" />
+                <Text style={styles.quickActionCallText}>Call Lead</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionBtnSecondary}
+              onPress={handleOpenWhatsApp}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="logo-whatsapp" size={17} color="#16A34A" />
+              <Text style={styles.quickActionBtnSecondaryText}>WhatsApp</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionBtnSecondary}
+              onPress={() => setLogCallVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="clipboard-outline" size={17} color="#2563EB" />
+              <Text style={styles.quickActionBtnSecondaryText}>Log Call</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* ================================================================ */}
           {/* 3. TABS CARD: Follow-ups | Status                                */}
@@ -1754,5 +1794,56 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  quickActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  quickActionCallBtn: {
+    flex: 1.4,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  quickActionCallGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
+  },
+  quickActionCallText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  quickActionBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  quickActionBtnSecondaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
   },
 });

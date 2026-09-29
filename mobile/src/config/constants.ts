@@ -11,35 +11,10 @@ import Constants from 'expo-constants';
  * 4. Constants.expoConfig?.extra?.apiBaseUrl (dynamic app.config.js injection)
  * 5. (Constants.manifest as any)?.extra?.apiBaseUrl (Expo manifest fallback)
  */
+const DEFAULT_PROD_URL = 'https://procedures-anderson-importance-drivers.trycloudflare.com';
+
 const getRawEnvBaseUrl = (): string => {
-  // If running in a web browser (npm run web)
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
-    const { hostname } = window.location;
-    // When running on localhost / 127.0.0.1 in the browser, always use localhost:8080
-    // so it never breaks even when switching Wi-Fi networks or if .env has a different LAN IP
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:8080';
-    }
-    if (hostname) {
-      return `http://${hostname}:8080`;
-    }
-  }
-
-  // On physical mobile devices running in Expo Go, extract the Metro bundler host IP.
-  // This guarantees that if the computer's Wi-Fi IP changes, the mobile device automatically
-  // connects to the backend on the exact same host machine without manual configuration.
-  const expoHostUri =
-    Constants.expoConfig?.hostUri ||
-    (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost ||
-    (Constants as any)?.manifest?.debuggerHost;
-
-  if (expoHostUri && typeof expoHostUri === 'string') {
-    const host = expoHostUri.split(':')[0];
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      return `http://${host}:8080`;
-    }
-  }
-
+  // 1. Explicit environment variable (.env) takes highest priority
   const envUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.API_BASE_URL ||
@@ -47,10 +22,20 @@ const getRawEnvBaseUrl = (): string => {
     (Constants as any)?.manifest2?.extra?.expoClient?.extra?.apiBaseUrl ||
     (Constants.manifest as any)?.extra?.apiBaseUrl;
 
-  if (!envUrl) {
-    return 'http://192.168.1.43:8080';
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.trim();
   }
-  return envUrl;
+
+  // 2. If running in a web browser without env var
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8080';
+    }
+  }
+
+  // 3. Fallback to production Render URL
+  return DEFAULT_PROD_URL;
 };
 
 // Normalize base URL to ensure clean /api/v1 prefix
